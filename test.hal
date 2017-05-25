@@ -1,0 +1,53 @@
+log rt 5
+loadrt threads name1=test period1=1000000
+loadrt siggen num_chan=2
+loadrt karsam_uno num_axes=3 axis_name=x,y,z num_pwm=1
+
+setp karsam.base_frequency 80000
+
+net X-vel siggen.0.cosine => karsam.axis.0.velocity-cmd
+net Y-vel siggen.0.sine => karsam.axis.1.velocity-cmd
+net Z-vel siggen.1.cosine => karsam.axis.2.velocity-cmd
+
+setp karsam.axis.0.maxaccel 6.0
+setp karsam.axis.0.maxvel 2.778
+setp karsam.axis.0.position-scale 2519.7
+setp karsam.axis.0.step_len 25000
+setp karsam.axis.0.step_space 25000
+setp karsam.axis.0.dir_setup 0
+setp karsam.axis.0.dir_hold 12500
+# net xpos-home karsam.axis.0.home => axis.0.home_sw_in
+# net xpos-limit karsam.axis.0.limit => axis.0.lim_sw_in
+
+setp karsam.axis.1.maxaccel 6.0
+setp karsam.axis.1.maxvel 2.778
+setp karsam.axis.1.position-scale 2519.7 
+setp karsam.axis.1.step_len 25000
+setp karsam.axis.1.step_space 25000
+setp karsam.axis.1.dir_setup 0
+setp karsam.axis.1.dir_hold 12500
+
+setp karsam.axis.2.maxaccel 6.0
+setp karsam.axis.2.maxvel 2.778
+setp karsam.axis.2.position-scale 2519.7 
+setp karsam.axis.2.step_len 25000
+setp karsam.axis.2.step_space 25000
+setp karsam.axis.2.dir_setup 0
+setp karsam.axis.2.dir_hold 12500
+
+setp karsam.pwm.0.scale 1
+setp karsam.pwm.0.frequency 50
+setp karsam.pwm.0.enable 1
+setp karsam.pwm.0.duty_cycle 20
+# net PWM siggen.1.triangle => karsam.pwm.0.duty_cycle 
+
+setp siggen.0.amplitude 4
+setp siggen.0.frequency 0.025
+
+setp siggen.0.amplitude 30
+setp siggen.0.frequency 0.02
+
+addf karsam.update test
+addf siggen.0.update test
+addf siggen.1.update test
+
