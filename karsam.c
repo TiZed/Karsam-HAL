@@ -271,10 +271,15 @@ int rtapi_app_main(void)
 //	rtapi_print_msg(RTAPI_MSG_INFO, "%s: Transmitting configuration to controller.\n", module_name) ;
 //	configure_cmd() ;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(sys_config->emo),
+	retval = hal_pin_bit_newf(HAL_OUT, &(update_data->emo),
 			comp_id, "%s.emo", prefix) ;
 	if (retval < 0) goto error ;
-	*(sys_config->emo) = 0 ;
+	*(update_data->emo) = 0 ;
+
+	retval = hal_pin_bit_newf(HAL_OUT, &(update_data->z_level),
+			comp_id, "%s.z_level", prefix) ;
+	if (retval < 0) goto error ;
+	*(update_data->z_level) = 0 ;
 
 	retval = hal_pin_bit_newf(HAL_OUT, &(sys_config->ready),
 			comp_id, "%s.ready", prefix) ;
@@ -460,11 +465,6 @@ void update(void * arg, long period)
 	stepgen = ud->stepgen ;
 	pwmgen = ud->pwmgen ;
 
-	// Get position update from the machine
-	if(!update_pos(stepgen)) {
-		*(sys_config->spi_error) = 1 ;
- 		return ;
-	}
 
 	// Velocity/Position calculations pass
 	for (n = 0 ; n < num_axes ; n++) {
@@ -562,41 +562,33 @@ void update(void * arg, long period)
 		stepgen++ ;
 	} // for (n = 0 ; n < num_axes ...
 
-	// Setup PWM data
+
 	i = 0 ;
+
+	// Send velocity command
+	tx_buf[0] = SWAP_BYTES(CMD_UPD) ;
+	for (i = 0 ; i < num_axes ; i++) tx_buf[i+1] = vel_buf[i] ;
 
 	// PWM output pass
 	for (n = 0 ; n < num_pwm ; n++) {
 		// Flag PWM transmit if duty cycle changed on one of the channels
 		if ((float) *(pwmgen->pwm_duty) != pwmgen->old_duty) {
 			pwmgen->old_duty = (float) *(pwmgen->pwm_duty) ;
-			send_pwm = 1 ;
 		}
 
-		pwm_buf[i++] = SWAP_BYTES(*(unsigned int *) &pwmgen->old_duty) ;
+		tx_buf[i++] = SWAP_BYTES(*(unsigned int *) &pwmgen->old_duty) ;
 		pwmgen++ ;
 	} // for (n = 0 ; n < num_pwm ...
 
-	// Send PWM command if required
-	if (send_pwm) {
-		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Updating PWM.\n", module_name) ;
-
-		tx_buf[0] = SWAP_BYTES(CMD_PWM) ;
-		for (i = 0 ; i < num_pwm ; i++) tx_buf[i+1] = pwm_buf[i] ;
-
-		if (!spi_txm_cmd(num_pwm + 1)) {
-			rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send new PWM data.\n", module_name) ;
-                        *(sys_config->spi_error) = 1 ;
-		}
-	}
-
-	// Send velocity command
-	tx_buf[0] = SWAP_BYTES(CMD_VEL) ;
-	for (i = 0 ; i < num_axes ; i++) tx_buf[i+1] = vel_buf[i] ;
-
-	if (!spi_txm_cmd(num_axes + 1)) {
+	if (!spi_xmit(num_axes + 1)) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send new velocity data.\n", module_name) ;
                 *(sys_config->spi_error) = 1 ;
+	}
+
+	// Get position update from the machine
+	if(!update_pos(ud)) {
+		*(sys_config->spi_error) = 1 ;
+		return ;
 	}
 }
 
@@ -604,14 +596,10 @@ void update(void * arg, long period)
 static int update_pos(void *arg)
 {
 	unsigned int n = 0, fp = 0, flags_raw = 0 ;
-	stepgen_t * stepgen = arg ;
+	update_data_t * ud = arg ;
+	stepgen_t * stepgen = ud->stepgen ;
     cnc_flags_t flags ;
     uint64_t pos ;
-
-    if (!spi_rcv_cmd(CMD_POS, 2 * num_axes + FLAGS_LEN)) {
-    	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to get position data.\n", module_name) ;
-    	return 0 ;
-    }
 
     flags_raw = SWAP_BYTES(rx_buf[1]) ;
     memcpy((void *)&flags, (void *)&flags_raw, FLAGS_LEN * sizeof(unsigned int)) ;
@@ -620,7 +608,13 @@ static int update_pos(void *arg)
     if (flags.ucont_fault)
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Microcontroller error reported.", module_name) ;
 
+    if (flags.xsum_error)
+        rtapi_print_msg(RTAPI_MSG_ERR, "%s: Command checksum error reported.", module_name) ;
+
     fp = 2 ;
+
+    ud->emo = flags.switch_emo ;
+    ud->z_level = flags.z_level ;
 
 	for (n = 0 ; n < num_axes ; n++) {
 		stepgen[n].ucont_old_pos = stepgen[n].ucont_pos ;
@@ -638,30 +632,37 @@ static int update_pos(void *arg)
 		case AXIS_X:
 			*(stepgen[n].limit) = flags.switch_x_limit ;
 			*(stepgen[n].home)  = flags.switch_x_home ;
+			*(stepgen[n].fault) = flags.x_drv_fault ;
 			break ;
 		case AXIS_Y:
 			*(stepgen[n].limit) = flags.switch_y_limit ;
 			*(stepgen[n].home)  = flags.switch_y_home ;
+			*(stepgen[n].fault) = flags.y_drv_fault ;
 			break ;
 		case AXIS_Z:
 			*(stepgen[n].limit) = flags.switch_z_limit ;
 			*(stepgen[n].home)  = flags.switch_z_home ;
+			*(stepgen[n].fault) = flags.z_drv_fault ;
 			break ;
 		case AXIS_A:
 			*(stepgen[n].limit) = flags.switch_a_limit ;
 			*(stepgen[n].home)  = flags.switch_a_home ;
+			*(stepgen[n].fault) = flags.a_drv_fault ;
 			break ;
 		case AXIS_B:
 			*(stepgen[n].limit) = flags.switch_b_limit ;
 			*(stepgen[n].home)  = flags.switch_b_home ;
+			*(stepgen[n].fault) = flags.b_drv_fault ;
 			break ;
 		case AXIS_C:
 			*(stepgen[n].limit) = flags.switch_c_limit ;
 			*(stepgen[n].home)  = flags.switch_c_home ;
+			*(stepgen[n].fault) = flags.c_drv_fault ;
 			break ;
 		case AXIS_E:
 			*(stepgen[n].limit) = flags.switch_e_limit ;
 			*(stepgen[n].home)  = flags.switch_e_home ;
+			*(stepgen[n].fault) = flags.e_drv_fault ;
 			break ;
 		}
 	}
@@ -690,7 +691,7 @@ static void configure_cmd() {
     	tx_buf[i++] = SWAP_BYTES(pwmgen_array[n].pwm_frequency) ;
     }
 
-    if (!spi_txm_cmd(i)) {
+    if (!spi_xmit(i)) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send configuration update to controller.\n", module_name) ;
     }
 }
@@ -853,8 +854,6 @@ void * bcm_spi_thread(void * wr_info) {
 		pthread_exit(NULL) ;
 	}
 
-
-
 	// Set thread priority in the scheduler
 	s_param.__sched_priority = SPI_PRIORITY ;
 	if(sched_setscheduler(0, SCHED_FIFO, &s_param) == -1) {
@@ -891,6 +890,39 @@ int bcm_spi_RW(int len, unsigned char *tx_data, unsigned char *rx_data, int wait
 //	spi.cs_change = 0 ;
 
 	return ioctl(spi_fd, SPI_IOC_MESSAGE(1), &spi) ;
+}
+
+static int spi_xmit(unsigned int len) {
+	int i ;
+	unsigned int checksum = 0, r_chk = 0 ;
+
+	spi_info.len = sizeof(unsigned int) * (len) ;
+
+	sem_post(&spi_info.start) ;
+	sem_wait(&spi_info.done) ;
+	sem_post(&spi_info.done) ;
+
+	if (spi_info.len != spi_info.ret) {
+		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive size error expected %x, received %x.\n", module_name, spi_info.len, spi_info.ret) ;
+		return 0 ;
+	}
+
+	if (debug)
+		for (i = 0 ; i < len ; i++)
+			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
+
+	for(i = 0 ; i < len ; i++) r_chk ^= rx_buf[i] ;
+
+	if (!r_chk) {
+		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive checksum error, expected %x.\n", module_name, checksum) ;
+
+		for (i = 0 ; i < len ; i++)
+			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
+
+		return 0 ;
+	}
+
+	return 1 ;
 }
 
 // Receive data proceedure

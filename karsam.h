@@ -45,17 +45,18 @@ typedef struct {
     unsigned int switch_c_home :1 ;     // bit 11
     unsigned int switch_c_limit :1 ;    // bit 12
     unsigned int switch_e_home :1 ;     // bit 13
-    unsigned int switch_e_limit :1 ;    // bit 14
-    unsigned int reserved_sw :8 ;       // bits 15-22
-    unsigned int switch_emo :1 ;	// bit 23	
+    unsigned int z_level :1 ;           // bit 15
+    unsigned int reserved_sw :6 ;       // bits 16-21
+    unsigned int xsum_error:1 ;         // bit 22
+    unsigned int switch_emo :1 ;	    // bit 23
     unsigned int ucont_fault :1 ;       // bit 24
-    unsigned int x_drv_fault :1 ;	// bit 25
-    unsigned int y_drv_fault :1 ;	// bit 26
-    unsigned int z_drv_fault :1 ;	// bit 27
-    unsigned int a_drv_fault :1 ;	// bit 28
-    unsigned int b_drv_fault :1 ;	// bit 29
-    unsigned int c_drv_fault :1 ;	// bit 30
-    unsigned int e_drv_fault :1 ;	// bit 31
+    unsigned int x_drv_fault :1 ;	    // bit 25
+    unsigned int y_drv_fault :1 ;	    // bit 26
+    unsigned int z_drv_fault :1 ;	    // bit 27
+    unsigned int a_drv_fault :1 ;	    // bit 28
+    unsigned int b_drv_fault :1 ;	    // bit 29
+    unsigned int c_drv_fault :1 ;	    // bit 30
+    unsigned int e_drv_fault :1 ;	    // bit 31
     unsigned int reserved :1 ;          // bit 32
 } cnc_flags_t ;
 
@@ -98,6 +99,7 @@ typedef struct {
 	hal_bit_t *enable ;
 	hal_bit_t *home ;
 	hal_bit_t *limit ;
+	hal_bit_t *fault ;
     hal_float_t *position_cmd ;
 	hal_float_t *velocity_cmd ;
 	hal_float_t *position_fb ;
@@ -139,7 +141,6 @@ typedef struct {
 } stepgen_t ;
 
 typedef struct {
-	hal_bit_t *emo ;
 	hal_bit_t *ready ;
 	hal_bit_t *spi_error ;
 
@@ -158,6 +159,9 @@ typedef struct {
 } pwmgen_t ;
 
 typedef struct {
+	hal_bit_t *z_level ;
+	hal_bit_t *emo ;
+
 	stepgen_t * stepgen ;
 	pwmgen_t * pwmgen ;
 } update_data_t ;
@@ -190,7 +194,7 @@ typedef struct {
 #define SPIBUFSIZE		(100)
 #define SPI_RESP_DELAY  20
 
-#define SPI_CLKDIV	32		// Set SPI to 8MHz
+#define SPI_CLKDIV	32		// Set SPI to 8MHz (16 - 16MHz)
 #define SPI_PRIORITY 49
 
 #define PERIODFP 		((double)1.0 / (double)(BASEFREQ))
@@ -199,11 +203,9 @@ typedef struct {
 
 // Commands
 #define CMD_CFG     0x47464323    // #CFG
-#define CMD_VEL     0x4c455623    // #VEL
-#define CMD_POS     0x524f5023    // #POS
+#define CMD_UPD     0x44505523    // #UPD
 #define CMD_STP     0x50545323    // #STP
 #define CMD_CHK     0x4b484323    // #CHK
-#define CMD_PWM     0x4d575023    // #PWM
 
 #define ulceil(val, inc)	(inc * (1 + (val - 1) / inc))
 #define fixed2fp(val)		(double)((val - (1L << (PICKOFF - 1))) * (1.0 / (1L << PICKOFF)))
@@ -218,6 +220,7 @@ static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) ;
 static int export_pwmgen(int num, pwmgen_t * addr) ;
 static void configure_cmd() ;
 
+static int spi_xmit(unsigned int len) ;
 static int spi_rcv_cmd(unsigned int cmd, unsigned int rcv_words) ;
 static int spi_txm_cmd(unsigned int tx_words) ;
 
