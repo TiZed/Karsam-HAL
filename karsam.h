@@ -45,6 +45,7 @@ typedef struct {
     unsigned int switch_c_home :1 ;     // bit 11
     unsigned int switch_c_limit :1 ;    // bit 12
     unsigned int switch_e_home :1 ;     // bit 13
+    unsigned int switch_e_limit :1 ;    // bit 14
     unsigned int z_level :1 ;           // bit 15
     unsigned int reserved_sw :6 ;       // bits 16-21
     unsigned int xsum_error:1 ;         // bit 22

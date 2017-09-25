@@ -613,8 +613,8 @@ static int update_pos(void *arg)
 
     fp = 2 ;
 
-    ud->emo = flags.switch_emo ;
-    ud->z_level = flags.z_level ;
+    *(ud->emo) = flags.switch_emo ;
+    *(ud->z_level) = flags.z_level ;
 
 	for (n = 0 ; n < num_axes ; n++) {
 		stepgen[n].ucont_old_pos = stepgen[n].ucont_pos ;
