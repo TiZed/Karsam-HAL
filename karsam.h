@@ -142,13 +142,6 @@ typedef struct {
 } stepgen_t ;
 
 typedef struct {
-	hal_bit_t *ready ;
-	hal_bit_t *spi_error ;
-
-	hal_u32_t basefreq ;
-} sys_config_t ;
-
-typedef struct {
 	hal_float_t *pwm_duty ;
 	hal_float_t pwm_scale ;
 	hal_u32_t pwm_frequency ;
@@ -162,6 +155,11 @@ typedef struct {
 typedef struct {
 	hal_bit_t *z_level ;
 	hal_bit_t *emo ;
+
+	hal_bit_t *ready ;
+	hal_bit_t *spi_error ;
+
+	hal_u32_t basefreq ;
 
 	stepgen_t * stepgen ;
 	pwmgen_t * pwmgen ;
@@ -219,7 +217,7 @@ static int update_pos(void *arg) ;
 static axis_name_t parse_axis(const char * axis) ;
 static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) ;
 static int export_pwmgen(int num, pwmgen_t * addr) ;
-static void configure_cmd() ;
+static int configure_cmd() ;
 
 static int spi_xmit(unsigned int len) ;
 static int spi_rcv_cmd(unsigned int cmd, unsigned int rcv_words) ;

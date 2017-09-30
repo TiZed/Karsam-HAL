@@ -23,16 +23,14 @@
  *
  * GPIO:
  * ----
- * BCM 23 (16) - ChipKit Uno32 - Reset
- * BCM 24 (18) - Step Contorllers - Reset
- * BCM 25 (20) - ChipKit Uno32 - SS2
+ * BCM 23 (16) - KReal - Reset
  *
  * SPI:
  * ---
- * BCM  9 (21) - ChipKit Uno32 - SDI2 (MISO)
- * BCM 10 (19) - ChipKit Uno32 - SDO2 (MOSI)
- * BCM 11 (23) - ChipKit Uno32 - SCK2 (SCLK)
- *
+ * BCM  9 (21) - KReal - MISO
+ * BCM 10 (19) - KReal - MOSI
+ * BCM 11 (23) - KReal - SCLK
+ * BCM  8 (24) - KReal - SS
  */
 
 
@@ -54,7 +52,7 @@
 #include "karsam.h"
 
 MODULE_AUTHOR("TiZed") ;
-MODULE_DESCRIPTION("PIC32 Uno32 driver for Karsam") ;
+MODULE_DESCRIPTION("PIC32 based controller for Karsam") ;
 MODULE_LICENSE("GPL") ;
 
 static unsigned int num_axes = 0 ;
@@ -74,7 +72,6 @@ static platform_t platform ;
 
 static stepgen_t * stepgen_array ;
 static pwmgen_t * pwmgen_array ;
-static sys_config_t * sys_config ;
 
 static update_data_t * update_data ;
 
@@ -105,7 +102,7 @@ platform_t check_platform(void)
 	char buf[2048] ;
 	size_t fsize ;
 
-	debug = 0 ;
+	debug = 1 ;
 
 	fp = fopen("/proc/cpuinfo", "r") ;
 	fsize = fread(buf, 1, sizeof(buf), fp) ;
@@ -120,6 +117,9 @@ platform_t check_platform(void)
 	if (NULL != strstr(buf, "BCM2708"))
 		return RPI ;
 	else if (NULL != strstr(buf, "BCM2709"))
+		return RPI_2 ;
+	// WA for latest kernel CPU report bug
+	else if (NULL != strstr(buf, "BCM2835"))
 		return RPI_2 ;
 	else
 		return UNSUPPORTED ;
@@ -180,11 +180,10 @@ int rtapi_app_main(void)
 			return -1 ;
         }
 
+        OUT_GPIO(8) ;
         OUT_GPIO(23) ;
-        OUT_GPIO(24) ;
-        INP_GPIO(25) ;
 
-        GPIO_SET = (1 << 24) ;
+        GPIO_SET = (1 << 8) ;
         GPIO_CLR = (1 << 23) ;
 
 		break;
@@ -220,15 +219,6 @@ int rtapi_app_main(void)
 	update_data = hal_malloc(sizeof(update_data_t)) ;
 	if (update_data == NULL) {
 		error_msg("%s: ERROR: hal_malloc() failed for update_data\n") ;
-		hal_exit(comp_id) ;
-		return -1 ;
-
-	}
-
-        /* Allocate configuration shared memory */
-	sys_config = hal_malloc(sizeof(sys_config_t)) ;
-	if (sys_config == NULL) {
-		error_msg("%s: ERROR: hal_malloc() failed for sys_config\n") ;
 		hal_exit(comp_id) ;
 		return -1 ;
 	}
@@ -281,20 +271,20 @@ int rtapi_app_main(void)
 	if (retval < 0) goto error ;
 	*(update_data->z_level) = 0 ;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(sys_config->ready),
+	retval = hal_pin_bit_newf(HAL_OUT, &(update_data->ready),
 			comp_id, "%s.ready", prefix) ;
 	if (retval < 0) goto error ;
-	*(sys_config->ready) = 0 ;
+	*(update_data->ready) = 0 ;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(sys_config->spi_error),
+	retval = hal_pin_bit_newf(HAL_OUT, &(update_data->spi_error),
 			comp_id, "%s.spi_error", prefix) ;
 	if (retval < 0) goto error ;
-	*(sys_config->spi_error) = 0 ;
+	*(update_data->spi_error) = 0 ;
 
-	retval = hal_param_u32_newf(HAL_RW, &(sys_config->basefreq),
+	retval = hal_param_u32_newf(HAL_RW, &(update_data->basefreq),
 			comp_id, "%s.base_frequency", prefix) ;
 	if (retval < 0) goto error ;
-	sys_config->basefreq = 0 ;
+	update_data->basefreq = 0 ;
 
 error:
 	if (retval < 0) {
@@ -366,8 +356,7 @@ void update(void * arg, long period)
 	stepgen_t * stepgen = ud->stepgen ;
 	pwmgen_t * pwmgen = ud->pwmgen ;
 
-	unsigned int vel_buf[MAX_AXES + 1] ;
-	unsigned int pwm_buf[MAX_PWM + 1] ;
+	unsigned checksum = 0 ;
 
 	long min_period ;
 	double max_freq, max_accl, pos_cmd, vel_cmd ;
@@ -383,8 +372,8 @@ void update(void * arg, long period)
 	}
 
 	// Change in u-controller stepgen loop frequency
-	if(base_freq != sys_config->basefreq) {
-		base_freq = sys_config->basefreq ;
+	if(base_freq != ud->basefreq) {
+		base_freq = ud->basefreq ;
 		period_fp = 1.0 / (double)base_freq ;
 		period_ns = (long)(period_fp * 1e9) ;
 
@@ -458,13 +447,18 @@ void update(void * arg, long period)
 	// Transmit new configuration if changed
 	if (send_cfg) {
 		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Updating configuration.\n", module_name) ;
-		configure_cmd() ;
+		if(!configure_cmd()) {
+			*(ud->spi_error) = 1 ;
+			return ;
+		}
 	}
 
 	// Reset pointers for motion pass
 	stepgen = ud->stepgen ;
 	pwmgen = ud->pwmgen ;
 
+	tx_buf[i++] = SWAP_BYTES(CMD_UPD) ;
+	checksum ^= CMD_UPD ;
 
 	// Velocity/Position calculations pass
 	for (n = 0 ; n < num_axes ; n++) {
@@ -557,17 +551,11 @@ void update(void * arg, long period)
 		stepgen->velocity = new_vel ;
 		stepgen->target_inc = stepgen->velocity * velocity_scale ;
 
-		vel_buf[i++] = SWAP_BYTES((unsigned int) stepgen->target_inc) ;
+		tx_buf[i++] = SWAP_BYTES((unsigned int) stepgen->target_inc) ;
+		checksum ^= stepgen->target_inc ;
 
 		stepgen++ ;
 	} // for (n = 0 ; n < num_axes ...
-
-
-	i = 0 ;
-
-	// Send velocity command
-	tx_buf[0] = SWAP_BYTES(CMD_UPD) ;
-	for (i = 0 ; i < num_axes ; i++) tx_buf[i+1] = vel_buf[i] ;
 
 	// PWM output pass
 	for (n = 0 ; n < num_pwm ; n++) {
@@ -577,23 +565,31 @@ void update(void * arg, long period)
 		}
 
 		tx_buf[i++] = SWAP_BYTES(*(unsigned int *) &pwmgen->old_duty) ;
+		checksum ^= *(unsigned int *) &pwmgen->old_duty ;
+
 		pwmgen++ ;
 	} // for (n = 0 ; n < num_pwm ...
 
-	if (!spi_xmit(num_axes + 1)) {
+	// Add checksum
+	tx_buf[i++] = SWAP_BYTES(checksum) ;
+
+	// If expected return data is bigger than data to send, pad the buffer
+	for(; i < (num_axes * 2 + 2) ; tx_buf[i++] = 0) ;
+
+	if (!spi_xmit(i)) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send new velocity data.\n", module_name) ;
-                *(sys_config->spi_error) = 1 ;
+        *(ud->spi_error) = 1 ;
 	}
 
 	// Get position update from the machine
 	if(!update_pos(ud)) {
-		*(sys_config->spi_error) = 1 ;
+		*(ud->spi_error) = 1 ;
 		return ;
 	}
 }
 
 // Read position accumulators from u-controllers
-static int update_pos(void *arg)
+static int update_pos(void * arg)
 {
 	unsigned int n = 0, fp = 0, flags_raw = 0 ;
 	update_data_t * ud = arg ;
@@ -601,7 +597,7 @@ static int update_pos(void *arg)
     cnc_flags_t flags ;
     uint64_t pos ;
 
-    flags_raw = SWAP_BYTES(rx_buf[1]) ;
+    flags_raw = SWAP_BYTES(rx_buf[fp]) ;
     memcpy((void *)&flags, (void *)&flags_raw, FLAGS_LEN * sizeof(unsigned int)) ;
 //    rtapi_print_msg(RTAPI_MSG_INFO, "%s: Controller flags %x.\n", module_name, flags_raw) ;   
 
@@ -610,8 +606,6 @@ static int update_pos(void *arg)
 
     if (flags.xsum_error)
         rtapi_print_msg(RTAPI_MSG_ERR, "%s: Command checksum error reported.", module_name) ;
-
-    fp = 2 ;
 
     *(ud->emo) = flags.switch_emo ;
     *(ud->z_level) = flags.z_level ;
@@ -671,8 +665,9 @@ static int update_pos(void *arg)
 }
 
 // Send timing configuration to u-controller
-static void configure_cmd() {
+static int configure_cmd() {
     int n, i = 0 ;
+    unsigned int checksum = 0 ;
 
     tx_buf[i++] = SWAP_BYTES(CMD_CFG) ;
     tx_buf[i++] = SWAP_BYTES(base_freq) ;
@@ -691,9 +686,15 @@ static void configure_cmd() {
     	tx_buf[i++] = SWAP_BYTES(pwmgen_array[n].pwm_frequency) ;
     }
 
+    for(n = 0 ; n < i ; n++) checksum ^= tx_buf[n] ;
+    tx_buf[i++] = checksum ;
+
     if (!spi_xmit(i)) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send configuration update to controller.\n", module_name) ;
+    	return 0 ;
     }
+
+    return 1 ;
 }
 
 // Export axis parameters and flags
@@ -896,11 +897,17 @@ static int spi_xmit(unsigned int len) {
 	int i ;
 	unsigned int checksum = 0, r_chk = 0 ;
 
+	// Drop CS - Start of exchange
 	spi_info.len = sizeof(unsigned int) * (len) ;
 
+	GPIO_CLR = (1 << 8) ;
+	sem_wait(&spi_info.done) ;
 	sem_post(&spi_info.start) ;
 	sem_wait(&spi_info.done) ;
 	sem_post(&spi_info.done) ;
+
+	// Rise CS - End of exchange
+	GPIO_SET = (1 << 8) ;
 
 	if (spi_info.len != spi_info.ret) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive size error expected %x, received %x.\n", module_name, spi_info.len, spi_info.ret) ;
