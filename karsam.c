@@ -895,6 +895,7 @@ int bcm_spi_RW(int len, unsigned char *tx_data, unsigned char *rx_data, int wait
 	return ioctl(spi_fd, SPI_IOC_MESSAGE(1), &spi) ;
 }
 
+// SPI Transmit and Receive
 static int spi_xmit(unsigned int len) {
 	int i ;
 	unsigned int checksum = 0, r_chk = 0 ;
@@ -925,95 +926,6 @@ static int spi_xmit(unsigned int len) {
 	}
 
 	return 1 ;
-}
-
-// Receive data proceedure
-static int spi_rcv_cmd(unsigned int cmd, unsigned int rcv_words) {
-	int i ;
-	unsigned int checksum = 0, r_chk = 0 ;
-	unsigned int padding = 9 ;
-
-	tx_buf[0] = SWAP_BYTES(cmd) ;
-	for (i = 1 ; i < rcv_words + padding ; tx_buf[i++] = 0) ;
-	spi_info.len = sizeof(unsigned int) * (rcv_words + padding) ;
-
-	sem_wait(&spi_info.done) ;
-	sem_post(&spi_info.start) ;
-	sem_wait(&spi_info.done) ;
-	sem_post(&spi_info.done) ;
-
-	if (spi_info.len != spi_info.ret) {
-		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive size error expected %x, received %x.\n", module_name, spi_info.len, spi_info.ret) ;
-		return 0 ;
-	}
-
-	if (debug)
-		for (i = 0 ; i < rcv_words + padding - 1 ; i++)
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
-
-	for (i = rcv_words + padding - 1 ; i > rcv_words - 1 && checksum == 0 ; checksum = rx_buf[i--]) ;
-
-	if (i == rcv_words - 1) {
-		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive checksum not found.\n", module_name) ;
-
-		for (i = 0 ; i < rcv_words + padding - 1 ; i++)
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
-
-		return 0 ;
-	}
-
-	int shift = i - rcv_words + 1 ;
-
-	for(i = 1 ; i < rcv_words + 1 ; i++) r_chk ^= rx_buf[i] = rx_buf[shift++] ;
-
-	if (!r_chk) {
-		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive checksum error, expected %x. Shift is %d\n", module_name, checksum, shift) ;
-
-		for (i = 0 ; i < rcv_words + padding - 1; i++)
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
-
-		return 0 ;
-	}
-
-	return 1 ;
-}
-
-// Transmit data procedure
-static int spi_txm_cmd(unsigned int tx_words) {
-	unsigned int checksum = 0 ;
-	unsigned int padding = 6 ;
-	int i, ret ;
-
-	spi_info.len = sizeof(unsigned int) * (tx_words + padding) ;
-
-	sem_wait(&spi_info.done) ;
-	sem_post(&spi_info.start) ;
-
-	for (i = 0 ; i < tx_words ; checksum ^= tx_buf[i++]) ;
-
-	sem_wait(&spi_info.done) ;
-	sem_post(&spi_info.done) ;
-
-	if (spi_info.len != spi_info.ret) {
-		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI transmit size error expected %x, transmitted %x.\n", module_name, spi_info.len, spi_info.ret) ;
-		return 0 ;
-	}
-	
-	if (debug)
-		for (i = 0 ; i < tx_words + padding - 1 ; i++)
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
-
-	for (i = tx_words + padding - 1 ; i > tx_words - 1 ; i--) {
-		if (checksum == rx_buf[i]) return 1 ;
-	}
-
-	rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI transmit checksum error, expected %x.\n", module_name, checksum) ;
-
-	if(!debug)
-		for (i = 0 ; i < tx_words + padding - 1 ; i++)
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
-
-	return 0 ;
 }
 
 // Raspberry Pi SPI setup
