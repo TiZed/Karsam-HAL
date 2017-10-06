@@ -578,7 +578,7 @@ void update(void * arg, long period)
 
 	if (!spi_xmit(i)) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send new velocity data.\n", module_name) ;
-        *(ud->spi_error) = 1 ;
+                *(ud->spi_error) = 1 ;
 	}
 
 	// Get position update from the machine
@@ -850,7 +850,7 @@ void * bcm_spi_thread(void * wr_info) {
 	}
 
 	// A semaphore to signal when SPI transfer is done
-	if (sem_init(&info->done, 0, 1) != 0) {
+	if (sem_init(&info->done, 0, 0) != 0) {
 		printf("Failed sem_init() of done\n") ;
 		pthread_exit(NULL) ;
 	}
@@ -867,7 +867,9 @@ void * bcm_spi_thread(void * wr_info) {
 	// Loop for as long as the program is running and wait for transactions
 	while (info->run) {
 		sem_wait(&info->start) ;
+		GPIO_CLR = (1 << 8) ;
 		info->ret = bcm_spi_RW(info->len, info->tx_data, info->rx_data, info->frame_wait) ;
+		GPIO_SET = (1 << 8) ;
 		info->frame_wait = 0 ;
 		sem_post(&info->done) ;
 	}
@@ -897,17 +899,10 @@ static int spi_xmit(unsigned int len) {
 	int i ;
 	unsigned int checksum = 0, r_chk = 0 ;
 
-	// Drop CS - Start of exchange
 	spi_info.len = sizeof(unsigned int) * (len) ;
 
-	GPIO_CLR = (1 << 8) ;
-	sem_wait(&spi_info.done) ;
 	sem_post(&spi_info.start) ;
 	sem_wait(&spi_info.done) ;
-	sem_post(&spi_info.done) ;
-
-	// Rise CS - End of exchange
-	GPIO_SET = (1 << 8) ;
 
 	if (spi_info.len != spi_info.ret) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive size error expected %x, received %x.\n", module_name, spi_info.len, spi_info.ret) ;
