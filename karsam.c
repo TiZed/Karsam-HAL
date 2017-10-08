@@ -150,7 +150,7 @@ int rtapi_app_main(void)
 
 		// Setup SPI
 		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Entering SPI setup.\n", module_name) ;
-        ret = bcm_spi_setup(8000000, 0x00) ;
+        ret = bcm_spi_setup(16000000, 0x00) ;
         if (ret != 0) {
             rtapi_print_msg(RTAPI_MSG_ERR,
 					"%s: ERROR: bcm_spi_setup() returned with error code: %d\n", module_name, ret) ;
@@ -576,7 +576,7 @@ void update(void * arg, long period)
 	// If expected return data is bigger than data to send, pad the buffer
 	for(; i < (num_axes * 2 + 2) ; tx_buf[i++] = 0) ;
 
-	if (!spi_xmit(i)) {
+	if (!spi_xmit(++i)) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send new velocity data.\n", module_name) ;
                 *(ud->spi_error) = 1 ;
 	}
@@ -591,21 +591,26 @@ void update(void * arg, long period)
 // Read position accumulators from u-controllers
 static int update_pos(void * arg)
 {
-	unsigned int n = 0, fp = 0, flags_raw = 0 ;
+	unsigned int n = 0, fp = 1, flags_raw = 0 ;
+	unsigned int ret = 1 ;
 	update_data_t * ud = arg ;
 	stepgen_t * stepgen = ud->stepgen ;
     cnc_flags_t flags ;
     uint64_t pos ;
 
-    flags_raw = SWAP_BYTES(rx_buf[fp]) ;
+    flags_raw = SWAP_BYTES(rx_buf[fp++]) ;
     memcpy((void *)&flags, (void *)&flags_raw, FLAGS_LEN * sizeof(unsigned int)) ;
 //    rtapi_print_msg(RTAPI_MSG_INFO, "%s: Controller flags %x.\n", module_name, flags_raw) ;   
 
-    if (flags.ucont_fault)
+    if (flags.ucont_fault) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Microcontroller error reported.", module_name) ;
+    	ret = 0 ;
+    }
 
-    if (flags.xsum_error)
+    if (flags.xsum_error) {
         rtapi_print_msg(RTAPI_MSG_ERR, "%s: Command checksum error reported.", module_name) ;
+        ret = 0 ;
+    }
 
     *(ud->emo) = flags.switch_emo ;
     *(ud->z_level) = flags.z_level ;
@@ -661,7 +666,7 @@ static int update_pos(void * arg)
 		}
 	}
 
-	return 1 ;
+	return ret ;
 }
 
 // Send timing configuration to u-controller
@@ -689,7 +694,7 @@ static int configure_cmd() {
     for(n = 0 ; n < i ; n++) checksum ^= tx_buf[n] ;
     tx_buf[i++] = checksum ;
 
-    if (!spi_xmit(i)) {
+    if (!spi_xmit(++i)) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send configuration update to controller.\n", module_name) ;
     	return 0 ;
     }
@@ -866,11 +871,20 @@ void * bcm_spi_thread(void * wr_info) {
 
 	// Loop for as long as the program is running and wait for transactions
 	while (info->run) {
+		// Wait for 'start' signal from main thread
 		sem_wait(&info->start) ;
+
+		// Drop CS
 		GPIO_CLR = (1 << 8) ;
+
+		// Start SPI transaction
 		info->ret = bcm_spi_RW(info->len, info->tx_data, info->rx_data, info->frame_wait) ;
+
+		// Rise CS
 		GPIO_SET = (1 << 8) ;
 		info->frame_wait = 0 ;
+
+		// Signal 'done' to main thread
 		sem_post(&info->done) ;
 	}
 
