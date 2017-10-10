@@ -70,10 +70,10 @@ static const char *prefix = "karsam" ;
 
 static platform_t platform ;
 
-static stepgen_t * stepgen_array ;
-static pwmgen_t * pwmgen_array ;
+static stepgen_t * stepgen_array = NULL ;
+static pwmgen_t * pwmgen_array = NULL ;
 
-static update_data_t * update_data ;
+static update_data_t * update_data = NULL ;
 
 static long base_freq ;
 static long period_ns ;
@@ -87,7 +87,7 @@ static double recip_dt ;
 
 static int spi_fd ;
 static int spi_speed ;
-volatile unsigned int tx_buf[SPIBUFSIZE], rx_buf[SPIBUFSIZE], chk_buf[3] ;
+volatile unsigned int tx_buf[SPIBUFSIZE], rx_buf[SPIBUFSIZE] ;
 
 static pthread_t spi_thread ;
 static spi_wr_info_t spi_info ;
@@ -209,11 +209,13 @@ int rtapi_app_main(void)
 	}
 
 	/* Allocate PWM shared memory */
-	pwmgen_array = hal_malloc(num_pwm * sizeof(pwmgen_t)) ;
-	if (pwmgen_array == NULL) {
-		error_msg("%s: ERROR: hal_malloc() failed for pwm\n") ;
-		hal_exit(comp_id) ;
-		return -1 ;
+	if (num_pwm > 0) {
+		pwmgen_array = hal_malloc(num_pwm * sizeof(pwmgen_t)) ;
+		if (pwmgen_array == NULL) {
+			error_msg("%s: ERROR: hal_malloc() failed for pwm\n") ;
+			hal_exit(comp_id) ;
+			return -1 ;
+		}
 	}
 
 	update_data = hal_malloc(sizeof(update_data_t)) ;
@@ -256,10 +258,6 @@ int rtapi_app_main(void)
 			return -1 ;
 		}
 	}
-
-	// Send configuration
-//	rtapi_print_msg(RTAPI_MSG_INFO, "%s: Transmitting configuration to controller.\n", module_name) ;
-//	configure_cmd() ;
 
 	retval = hal_pin_bit_newf(HAL_OUT, &(update_data->emo),
 			comp_id, "%s.emo", prefix) ;
@@ -311,9 +309,6 @@ error:
     // Wait for ~200msec.
 	for(n = 0 ; n < 200 ; n++) {
 		rtapi_delay(1000000) ;
-//		t = rtapi_get_time() ;
-//		end_t = t + (long int)1000000 ;
-//		while(t < end_t) t = rtapi_get_time() ;
 	}
 
     // Clear Controller reset
@@ -323,8 +318,6 @@ error:
     // Wait for ~2sec.
     for(n = 0 ; n < 2000 ; n++) {
     	rtapi_delay(1000000) ;
-//    	end_t = t + (long int)1000000 ;
-//    	while(t < end_t) t = rtapi_get_time() ;
     }
 
     // Clear step controllers reset
@@ -338,11 +331,7 @@ error:
 void rtapi_app_exit(void)
 {
 	rtapi_print_msg(RTAPI_MSG_INFO, "%s: removing driver\n", module_name) ;
-	spi_info.run = 0 ;
-	tx_buf[0] = SWAP_BYTES(CMD_STP) ;
-	spi_info.len = sizeof(unsigned int) ;
-	sem_post(&spi_info.start) ;
-    sem_wait(&spi_info.done) ;
+	stop_machine() ;
 	pthread_join(spi_thread, NULL) ;
 	bcm_close() ;
 
@@ -447,7 +436,7 @@ void update(void * arg, long period)
 	// Transmit new configuration if changed
 	if (send_cfg) {
 		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Updating configuration.\n", module_name) ;
-		if(!configure_cmd()) {
+		if(!configure_cmd(ud)) {
 			*(ud->spi_error) = 1 ;
 			return ;
 		}
@@ -574,9 +563,9 @@ void update(void * arg, long period)
 	tx_buf[i++] = SWAP_BYTES(checksum) ;
 
 	// If expected return data is bigger than data to send, pad the buffer
-	for(; i < (num_axes * 2 + 2) ; tx_buf[i++] = 0) ;
+	for(; i < (num_axes * 2 + 3) ; tx_buf[i++] = 0) ;
 
-	if (!spi_xmit(++i)) {
+	if (!spi_xmit(i)) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send new velocity data.\n", module_name) ;
                 *(ud->spi_error) = 1 ;
 	}
@@ -584,7 +573,6 @@ void update(void * arg, long period)
 	// Get position update from the machine
 	if(!update_pos(ud)) {
 		*(ud->spi_error) = 1 ;
-		return ;
 	}
 }
 
@@ -670,9 +658,11 @@ static int update_pos(void * arg)
 }
 
 // Send timing configuration to u-controller
-static int configure_cmd() {
+static int configure_cmd(void * arg) {
     int n, i = 0 ;
     unsigned int checksum = 0 ;
+    update_data_t * ud = arg ;
+    stepgen_t * stepgen = ud->stepgen ;
 
     tx_buf[i++] = SWAP_BYTES(CMD_CFG) ;
     tx_buf[i++] = SWAP_BYTES(base_freq) ;
@@ -700,6 +690,18 @@ static int configure_cmd() {
     }
 
     return 1 ;
+}
+
+static int stop_machine() {
+	unsigned int checksum = 0 ;
+
+	tx_buf[0] = SWAP_BYTES(CMD_STP) ;
+	checksum ^= tx_buf[0] ;
+	tx_buf[1] = checksum ;
+
+	spi_xmit(3) ;
+
+	return 1 ;
 }
 
 // Export axis parameters and flags
@@ -912,7 +914,7 @@ int bcm_spi_RW(int len, unsigned char *tx_data, unsigned char *rx_data, int wait
 // SPI Transmit and Receive
 static int spi_xmit(unsigned int len) {
 	int i ;
-	unsigned int checksum = 0, r_chk = 0 ;
+	unsigned int r_chk = 0 ;
 
 	spi_info.len = sizeof(unsigned int) * (len) ;
 
@@ -926,15 +928,15 @@ static int spi_xmit(unsigned int len) {
 
 	if (debug)
 		for (i = 0 ; i < len ; i++)
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
+			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word 0x%02x : -> 0x%08x | <- 0x%08x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
 
-	for(i = 0 ; i < len ; i++) r_chk ^= rx_buf[i] ;
+	for(i = 1 ; i < len ; i++) r_chk ^= rx_buf[i] ;
 
-	if (!r_chk) {
-		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive checksum error, expected %x.\n", module_name, checksum) ;
+	if (r_chk) {
+		rtapi_print_msg(RTAPI_MSG_ERR, "%s: SPI receive checksum error, got %x.\n", module_name, r_chk) ;
 
 		for (i = 0 ; i < len ; i++)
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word %0#2x : -> %0#8x | <- %0#8x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
+			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Word 0x%02x : -> 0x%08x | <- 0x%08x\n", module_name, i, tx_buf[i], rx_buf[i]) ;
 
 		return 0 ;
 	}

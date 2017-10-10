@@ -212,12 +212,13 @@ typedef struct {
 
 #define SWAP_BYTES(IN)  IN << 24 | (IN & 0xff00) << 8 | (IN & 0xff0000) >> 8 | IN >> 24
 
-static void update(void *arg, long period) ;
-static int update_pos(void *arg) ;
+static void update(void * arg, long period) ;
+static int update_pos(void * arg) ;
 static axis_name_t parse_axis(const char * axis) ;
 static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) ;
 static int export_pwmgen(int num, pwmgen_t * addr) ;
-static int configure_cmd() ;
+static int configure_cmd(void * arg) ;
+static int stop_machine() ;
 
 static int spi_xmit(unsigned int len) ;
 static int spi_rcv_cmd(unsigned int cmd, unsigned int rcv_words) ;
