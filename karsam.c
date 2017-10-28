@@ -180,11 +180,13 @@ int rtapi_app_main(void)
 			return -1 ;
         }
 
-        OUT_GPIO(8) ;
-        OUT_GPIO(23) ;
+        OUT_GPIO(8) ;		// Pin 8 used for chip select
+        OUT_GPIO(22) ;      // Controller reset
+        OUT_GPIO(27) ;		// Controller program
 
         GPIO_SET = (1 << 8) ;
-        GPIO_CLR = (1 << 23) ;
+        GPIO_CLR = (1 << 22) ;
+        GPIO_SET = (1 << 27) ;
 
 		break;
 	default:
@@ -227,6 +229,9 @@ int rtapi_app_main(void)
 
 	update_data->stepgen = stepgen_array ;
 	update_data->pwmgen = pwmgen_array ;
+
+	update_data->num_axes = num_axes ;
+	update_data->num_pwm = num_pwm ;
 
 	/* export axes parameters */
 	rtapi_print_msg(RTAPI_MSG_INFO, "%s: Exporting axes pins and parameters.\n", module_name) ;
@@ -373,7 +378,7 @@ void update(void * arg, long period)
 	}
 
 	// Configuration changes pass
-	for (n = 0 ; n < num_axes ; n++) {
+	for (n = 0 ; n < ud->num_axes ; n++) {
 		/* check for scale change */
 		if (stepgen->position_scale != stepgen->old_scale) {
 			/* get ready to detect future scale changes */
@@ -423,7 +428,7 @@ void update(void * arg, long period)
 		stepgen++ ;
 	}
 
-	for (n = 0 ; n < num_pwm ; n++) {
+	for (n = 0 ; n < ud->num_pwm ; n++) {
 		// Check if PWM frequency changed
 		if (pwmgen->old_frequency != pwmgen->pwm_frequency) {
 			pwmgen->old_frequency = pwmgen->pwm_frequency ;
@@ -450,7 +455,7 @@ void update(void * arg, long period)
 	checksum ^= CMD_UPD ;
 
 	// Velocity/Position calculations pass
-	for (n = 0 ; n < num_axes ; n++) {
+	for (n = 0 ; n < ud->num_axes ; n++) {
 		// Maximum step frequency
 		min_period = stepgen->step_len + stepgen->step_space ;
 		max_freq = 1.0 / (min_period * 1e-9) ;
@@ -547,7 +552,7 @@ void update(void * arg, long period)
 	} // for (n = 0 ; n < num_axes ...
 
 	// PWM output pass
-	for (n = 0 ; n < num_pwm ; n++) {
+	for (n = 0 ; n < ud->num_pwm ; n++) {
 		// Flag PWM transmit if duty cycle changed on one of the channels
 		if ((float) *(pwmgen->pwm_duty) != pwmgen->old_duty) {
 			pwmgen->old_duty = (float) *(pwmgen->pwm_duty) ;
@@ -563,7 +568,7 @@ void update(void * arg, long period)
 	tx_buf[i++] = SWAP_BYTES(checksum) ;
 
 	// If expected return data is bigger than data to send, pad the buffer
-	for(; i < (num_axes * 2 + 3) ; tx_buf[i++] = 0) ;
+	for(; i < (ud->num_axes * 2 + 3) ; tx_buf[i++] = 0) ;
 
 	if (!spi_xmit(i)) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send new velocity data.\n", module_name) ;
@@ -588,7 +593,7 @@ static int update_pos(void * arg)
 
     flags_raw = SWAP_BYTES(rx_buf[fp++]) ;
     memcpy((void *)&flags, (void *)&flags_raw, FLAGS_LEN * sizeof(unsigned int)) ;
-//    rtapi_print_msg(RTAPI_MSG_INFO, "%s: Controller flags %x.\n", module_name, flags_raw) ;   
+    rtapi_print_msg(RTAPI_MSG_INFO, "%s: Controller flags %x.\n", module_name, flags_raw) ;
 
     if (flags.ucont_fault) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Microcontroller error reported.", module_name) ;
@@ -603,7 +608,8 @@ static int update_pos(void * arg)
     *(ud->emo) = flags.switch_emo ;
     *(ud->z_level) = flags.z_level ;
 
-	for (n = 0 ; n < num_axes ; n++) {
+	for (n = 0 ; n < ud->num_axes ; n++) {
+
 		stepgen[n].ucont_old_pos = stepgen[n].ucont_pos ;
 		pos = SWAP_BYTES(rx_buf[fp++]) ;
 		pos <<= 32 ;
@@ -651,6 +657,9 @@ static int update_pos(void * arg)
 			*(stepgen[n].home)  = flags.switch_e_home ;
 			*(stepgen[n].fault) = flags.e_drv_fault ;
 			break ;
+		default:
+			ret = 0 ;
+			break ;
 		}
 	}
 
@@ -666,10 +675,10 @@ static int configure_cmd(void * arg) {
 
     tx_buf[i++] = SWAP_BYTES(CMD_CFG) ;
     tx_buf[i++] = SWAP_BYTES(base_freq) ;
-    tx_buf[i++] = SWAP_BYTES(num_axes) ;
-    tx_buf[i++] = SWAP_BYTES(num_pwm) ;
+    tx_buf[i++] = SWAP_BYTES(ud->num_axes) ;
+    tx_buf[i++] = SWAP_BYTES(ud->num_pwm) ;
 
-    for (n = 0 ; n < num_axes ; n++) {
+    for (n = 0 ; n < ud->num_axes ; n++) {
     	tx_buf[i++] = SWAP_BYTES((unsigned int)stepgen_array[n].axis) ;
         tx_buf[i++] = SWAP_BYTES(stepgen_array[n].step_len_ticks) ;
         tx_buf[i++] = SWAP_BYTES(stepgen_array[n].step_space_ticks) ;
@@ -677,7 +686,7 @@ static int configure_cmd(void * arg) {
         tx_buf[i++] = SWAP_BYTES(stepgen_array[n].dir_hold_ticks) ;
     }
 
-    for (n = 0 ; n < num_pwm ; n++) {
+    for (n = 0 ; n < ud->num_pwm ; n++) {
     	tx_buf[i++] = SWAP_BYTES(pwmgen_array[n].pwm_frequency) ;
     }
 
@@ -789,6 +798,12 @@ static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) {
 	if (ret < 0) return ret ;
 
 	*(addr->limit) = 0 ;
+
+	ret = hal_pin_bit_newf(HAL_OUT, &(addr->fault),
+			comp_id, "%s.axis.%d.fault", prefix, num) ;
+		if (ret < 0) return ret ;
+
+	*(addr->fault) = 0 ;
 
 	ret = hal_pin_bit_newf(HAL_IN, &(addr->enable),
 		comp_id, "%s.axis.%d.enable", prefix, num) ;

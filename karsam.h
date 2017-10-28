@@ -163,6 +163,9 @@ typedef struct {
 
 	stepgen_t * stepgen ;
 	pwmgen_t * pwmgen ;
+
+	unsigned int num_axes ;
+	unsigned int num_pwm ;
 } update_data_t ;
 
 #define SPIDEV_0           "/dev/spidev0.0"

@@ -4,47 +4,46 @@ loadrt trivkins
 loadrt tp
 # motion controller, get name and thread periods from ini file
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[TRAJ]AXES kins=trivkins tp=tp
-loadrt karsam_uno num_axes=3 axis_name=x,y,z
+loadrt karsam num_axes=3 axis_name=x,y,z num_pwm=2
 
-addf karsam_uno.update-position servo-thread
 addf motion-command-handler servo-thread
 addf motion-controller servo-thread
-addf karsam_uno.update servo-thread
+addf karsam.update servo-thread
 # addf karsam_uno.write servo-thread
 
 # net spindle-cmd <= motion.spindle-speed-out
 
-setp karsam_uno.base_frequency [EMCMOT]BASE_FREQUENCY
+setp karsam.base_frequency [EMCMOT]BASE_FREQUENCY
 
 # X - Axis
-setp karsam_uno.axis.0.scale [AXIS_0]SCALE
-setp karsam_uno.axis.0.maxaccel [AXIS_0]STEPGEN_MAXACCEL
+setp karsam.axis.0.position-scale [AXIS_0]SCALE
+setp karsam.axis.0.maxaccel [AXIS_0]STEPGEN_MAXACCEL
 
-net xpos-cmd axis.0.motor-pos-cmd => karsam_uno.axis.0.position-cmd
-net xpos-fb karsam_uno.axis.0.position-fb => axis.0.motor-pos-fb
-net xpos-en axis.0.amp-enable-out => karsam_uno.axis.0.enable
-net xpos-home karsam_uno.axis.0.home => axis.0.home_sw_in
-net xpos-limit karsam_uno.axis.0.limit => axis.0.lim_sw_in
+net xpos-cmd axis.0.motor-pos-cmd => karsam.axis.0.position-cmd
+net xpos-fb karsam.axis.0.position-fb => axis.0.motor-pos-fb
+net xpos-en axis.0.amp-enable-out => karsam.axis.0.enable
+net xpos-home karsam.axis.0.home => axis.0.home_sw_in
+net xpos-limit karsam.axis.0.limit => axis.0.lim_sw_in
 
 # Y - Axis
-setp karsam_uno.axis.1.scale [AXIS_1]SCALE
-setp karsam_uno.axis.1.maxaccel [AXIS_1]STEPGEN_MAXACCEL
+setp karsam.axis.1.position-scale [AXIS_1]SCALE
+setp karsam.axis.1.maxaccel [AXIS_1]STEPGEN_MAXACCEL
 
-net ypos-cmd axis.1.motor-pos-cmd => karsam_uno.axis.1.position-cmd
-net ypos-fb karsam_uno.axis.1.position-fb => axis.1.motor-pos-fb
-net xpos-en axis.1.amp-enable-out => karsam_uno.axis.1.enable
-net xpos-home karsam_uno.axis.1.home => axis.1.home_sw_in
-net xpos-limit karsam_uno.axis.1.limit => axis.1.lim_sw_in
+net ypos-cmd axis.1.motor-pos-cmd => karsam.axis.1.position-cmd
+net ypos-fb karsam.axis.1.position-fb => axis.1.motor-pos-fb
+net xpos-en axis.1.amp-enable-out => karsam.axis.1.enable
+net xpos-home karsam.axis.1.home => axis.1.home_sw_in
+net xpos-limit karsam.axis.1.limit => axis.1.lim_sw_in
 
 # Z - Axis
-setp karsam_uno.axis.2.scale [AXIS_2]SCALE
-setp karsam_uno.axis.2.maxaccel [AXIS_2]STEPGEN_MAXACCEL
+setp karsam.axis.2.position-scale [AXIS_2]SCALE
+setp karsam.axis.2.maxaccel [AXIS_2]STEPGEN_MAXACCEL
 
-net zpos-cmd axis.2.motor-pos-cmd => karsam_uno.axis.2.position-cmd
-net zpos-fb karsam_uno.axis.2.position-fb => axis.2.motor-pos-fb
-net xpos-en axis.2.amp-enable-out => karsam_uno.axis.2.enable
-net xpos-home karsam_uno.axis.2.home => axis.2.home_sw_in
-net xpos-limit karsam_uno.axis.2.limit => axis.2.lim_sw_in
+net zpos-cmd axis.2.motor-pos-cmd => karsam.axis.2.position-cmd
+net zpos-fb karsam.axis.2.position-fb => axis.2.motor-pos-fb
+net xpos-en axis.2.amp-enable-out => karsam.axis.2.enable
+net xpos-home karsam.axis.2.home => axis.2.home_sw_in
+net xpos-limit karsam.axis.2.limit => axis.2.lim_sw_in
 
 net estop-out <= iocontrol.0.user-enable-out
 net estop-out => iocontrol.0.emc-enable-in
