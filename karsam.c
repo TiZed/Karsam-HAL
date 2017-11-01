@@ -102,7 +102,7 @@ platform_t check_platform(void)
 	char buf[2048] ;
 	size_t fsize ;
 
-	debug = 1 ;
+	debug = 0 ;
 
 	fp = fopen("/proc/cpuinfo", "r") ;
 	fsize = fread(buf, 1, sizeof(buf), fp) ;
@@ -591,9 +591,11 @@ static int update_pos(void * arg)
     cnc_flags_t flags ;
     uint64_t pos ;
 
-    flags_raw = SWAP_BYTES(rx_buf[fp++]) ;
+    flags_raw = SWAP_BYTES(rx_buf[fp]) ;
+    fp++ ;
     memcpy((void *)&flags, (void *)&flags_raw, FLAGS_LEN * sizeof(unsigned int)) ;
-    rtapi_print_msg(RTAPI_MSG_INFO, "%s: Controller flags %x.\n", module_name, flags_raw) ;
+    if(flags_raw != 0)
+    	rtapi_print_msg(RTAPI_MSG_INFO, "%s: Controller flags %x.\n", module_name, flags_raw) ;
 
     if (flags.ucont_fault) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Microcontroller error reported.", module_name) ;
@@ -611,9 +613,11 @@ static int update_pos(void * arg)
 	for (n = 0 ; n < ud->num_axes ; n++) {
 
 		stepgen[n].ucont_old_pos = stepgen[n].ucont_pos ;
-		pos = SWAP_BYTES(rx_buf[fp++]) ;
+		pos = SWAP_BYTES(rx_buf[fp]) ;
+		fp++ ;
 		pos <<= 32 ;
-		pos += SWAP_BYTES(rx_buf[fp++]) ;
+		pos += SWAP_BYTES(rx_buf[fp]) ;
+		fp++ ;
 		stepgen[n].ucont_pos = (int64_t) pos ;
 		stepgen[n].accum += stepgen[n].ucont_pos - stepgen[n].ucont_old_pos ;
 		
