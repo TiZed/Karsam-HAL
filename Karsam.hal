@@ -18,6 +18,7 @@ setp karsam.base_frequency [EMCMOT]BASE_FREQUENCY
 # X - Axis
 setp karsam.axis.0.position-scale [AXIS_0]SCALE
 setp karsam.axis.0.maxaccel [AXIS_0]STEPGEN_MAXACCEL
+setp karsam.axis.0.maxvel [AXIS_0]MAX_VELOCITY
 
 net xpos-en axis.0.amp-enable-out => karsam.axis.0.enable
 
@@ -31,6 +32,7 @@ net xpos-limit karsam.axis.0.limit => axis.0.pos-lim-sw-in
 # Y - Axis
 setp karsam.axis.1.position-scale [AXIS_1]SCALE
 setp karsam.axis.1.maxaccel [AXIS_1]STEPGEN_MAXACCEL
+setp karsam.axis.1.maxvel [AXIS_1]MAX_VELOCITY
 
 net ypos-cmd axis.1.motor-pos-cmd => karsam.axis.1.position-cmd
 net ypos-fb karsam.axis.1.position-fb => axis.1.motor-pos-fb
@@ -43,6 +45,7 @@ net ypos-limit karsam.axis.1.limit => axis.1.pos-lim-sw-in
 # Z - Axis
 setp karsam.axis.2.position-scale [AXIS_2]SCALE
 setp karsam.axis.2.maxaccel [AXIS_2]STEPGEN_MAXACCEL
+setp karsam.axis.2.maxvel [AXIS_2]MAX_VELOCITY
 
 net zpos-cmd axis.2.motor-pos-cmd => karsam.axis.2.position-cmd
 net zpos-fb karsam.axis.2.position-fb => axis.2.motor-pos-fb
@@ -56,9 +59,8 @@ net zpos-limit karsam.axis.2.limit => axis.2.pos-lim-sw-in
 
 # net emo_button karsam.emo => or2.0.in0
 # net spi_error karsam.spi_error => or2.0.in1
-#net emo or2.0.out => iocontrol.0.emc-enable-in
-#setp or2.0.out.invert 1
+# net emo or2.0.out => iocontrol.0.emc-enable-in
+# setp or2.0.out.invert 1
 
-net estop-out <= iocontrol.0.user-enable-out
-net estop-out => iocontrol.0.emc-enable-in
+net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
 

@@ -102,7 +102,7 @@ platform_t check_platform(void)
 	char buf[2048] ;
 	size_t fsize ;
 
-	debug = 0 ;
+	debug = 1 ;
 
 	fp = fopen("/proc/cpuinfo", "r") ;
 	fsize = fread(buf, 1, sizeof(buf), fp) ;
@@ -337,6 +337,7 @@ void rtapi_app_exit(void)
 {
 	rtapi_print_msg(RTAPI_MSG_INFO, "%s: removing driver\n", module_name) ;
 	stop_machine() ;
+	spi_info.run = 0 ;
 	pthread_join(spi_thread, NULL) ;
 	bcm_close() ;
 
@@ -350,7 +351,7 @@ void update(void * arg, long period)
 	stepgen_t * stepgen = ud->stepgen ;
 	pwmgen_t * pwmgen = ud->pwmgen ;
 
-	unsigned checksum = 0 ;
+	unsigned int checksum = 0 ;
 
 	long min_period ;
 	double max_freq, max_accl, pos_cmd, vel_cmd ;
@@ -451,8 +452,10 @@ void update(void * arg, long period)
 	stepgen = ud->stepgen ;
 	pwmgen = ud->pwmgen ;
 
-	tx_buf[i++] = SWAP_BYTES(CMD_UPD) ;
-	checksum ^= CMD_UPD ;
+	tx_buf[i++] = CMD_UPD ;
+
+	// Place holder for bit flags
+	tx_buf[i++] = 0 ;
 
 	// Velocity/Position calculations pass
 	for (n = 0 ; n < ud->num_axes ; n++) {
@@ -488,6 +491,11 @@ void update(void * arg, long period)
 				max_accl = stepgen->maxaccel * fabs(stepgen->position_scale) ;
 			}
 		}
+        
+        if (*(stepgen->vel_cmds) == 1)
+            stepgen->cmd_mode = VELOCITY ;
+        else
+            stepgen->cmd_mode = POSITION ;
 
 		// Position mode
 		if (stepgen->cmd_mode == POSITION) {
@@ -496,6 +504,11 @@ void update(void * arg, long period)
 			/* calculate velocity command in counts/sec */
 			vel_cmd = (pos_cmd - stepgen->old_pos) * recip_dt ;
 			stepgen->old_pos = pos_cmd ;
+
+			if(vel_cmd > stepgen->maxvel)
+				vel_cmd = stepgen->maxvel ;
+			else if(vel_cmd < -stepgen->maxvel)
+				vel_cmd = -stepgen->maxvel ;
 
 			curr_pos = fixed2fp(stepgen->accum) ;
 			match_time = fabs(vel_cmd - stepgen->velocity) / max_accl ;
@@ -524,14 +537,9 @@ void update(void * arg, long period)
 					new_vel = stepgen->velocity + dir * max_accl * dt ;
 			}
 
-			if (new_vel > max_freq) new_vel = max_freq ;
-			else if (new_vel < -max_freq) new_vel = -max_freq ;
-
 		// Velocity mode
 		} else {
 			vel_cmd = *(stepgen->velocity_cmd) * stepgen->position_scale ;
-			if (vel_cmd > max_freq)	vel_cmd = max_freq ;
-			else if (vel_cmd < -max_freq) vel_cmd = -max_freq ;
 
 			dv = max_accl * dt ;
 			if (vel_cmd > stepgen->velocity + dv)
@@ -542,11 +550,16 @@ void update(void * arg, long period)
 				new_vel = vel_cmd ;
 		}
 
+		if (new_vel > stepgen->maxvel) new_vel = stepgen->maxvel ;
+		else if (new_vel < -stepgen->maxvel) new_vel = -stepgen->maxvel ;
+
 		stepgen->velocity = new_vel ;
 		stepgen->target_inc = stepgen->velocity * velocity_scale ;
 
-		tx_buf[i++] = SWAP_BYTES((unsigned int) stepgen->target_inc) ;
-		checksum ^= stepgen->target_inc ;
+		tx_buf[i++] = (unsigned int) (stepgen->target_inc >> 32) ;
+		tx_buf[i++] = (unsigned int) stepgen->target_inc ;
+
+		tx_buf[1] |= stepgen->axis ;
 
 		stepgen++ ;
 	} // for (n = 0 ; n < num_axes ...
@@ -558,14 +571,15 @@ void update(void * arg, long period)
 			pwmgen->old_duty = (float) *(pwmgen->pwm_duty) ;
 		}
 
-		tx_buf[i++] = SWAP_BYTES(*(unsigned int *) &pwmgen->old_duty) ;
-		checksum ^= *(unsigned int *) &pwmgen->old_duty ;
+		tx_buf[i++] = *(unsigned int *) &pwmgen->old_duty ;
 
 		pwmgen++ ;
 	} // for (n = 0 ; n < num_pwm ...
 
 	// Add checksum
-	tx_buf[i++] = SWAP_BYTES(checksum) ;
+	checksum = 0 ;
+	for (n = 0 ; n < i ; n++) checksum ^= tx_buf[n] ;
+	tx_buf[i++] = checksum ;
 
 	// If expected return data is bigger than data to send, pad the buffer
 	for(; i < (ud->num_axes * 2 + 3) ; tx_buf[i++] = 0) ;
@@ -589,7 +603,7 @@ static int update_pos(void * arg)
 	update_data_t * ud = arg ;
 	stepgen_t * stepgen = ud->stepgen ;
     cnc_flags_t flags ;
-    uint64_t pos ;
+    int64_t pos ;
 
     flags_raw = SWAP_BYTES(rx_buf[fp]) ;
     fp++ ;
@@ -618,11 +632,11 @@ static int update_pos(void * arg)
 		pos <<= 32 ;
 		pos += SWAP_BYTES(rx_buf[fp]) ;
 		fp++ ;
-		stepgen[n].ucont_pos = (int64_t) pos ;
+		stepgen[n].ucont_pos = pos ;
 		stepgen[n].accum += stepgen[n].ucont_pos - stepgen[n].ucont_old_pos ;
 		
 		*(stepgen[n].count) = stepgen[n].accum >> PICKOFF ;
-		*(stepgen[n].position_fb) = fixed2fp(stepgen[n].accum) ;
+		*(stepgen[n].position_fb) = fixed2fp(stepgen[n].accum) * stepgen->scale_inv ;
 
 		// Update switches
 		switch (stepgen[n].axis) {
@@ -677,21 +691,21 @@ static int configure_cmd(void * arg) {
     update_data_t * ud = arg ;
     stepgen_t * stepgen = ud->stepgen ;
 
-    tx_buf[i++] = SWAP_BYTES(CMD_CFG) ;
-    tx_buf[i++] = SWAP_BYTES(base_freq) ;
-    tx_buf[i++] = SWAP_BYTES(ud->num_axes) ;
-    tx_buf[i++] = SWAP_BYTES(ud->num_pwm) ;
+    tx_buf[i++] = CMD_CFG ;
+    tx_buf[i++] = base_freq ;
+    tx_buf[i++] = ud->num_axes ;
+    tx_buf[i++] = ud->num_pwm ;
 
     for (n = 0 ; n < ud->num_axes ; n++) {
-    	tx_buf[i++] = SWAP_BYTES((unsigned int)stepgen_array[n].axis) ;
-        tx_buf[i++] = SWAP_BYTES(stepgen_array[n].step_len_ticks) ;
-        tx_buf[i++] = SWAP_BYTES(stepgen_array[n].step_space_ticks) ;
-        tx_buf[i++] = SWAP_BYTES(stepgen_array[n].dir_setup_ticks) ;
-        tx_buf[i++] = SWAP_BYTES(stepgen_array[n].dir_hold_ticks) ;
+    	tx_buf[i++] = (unsigned int)stepgen_array[n].axis ;
+        tx_buf[i++] = stepgen_array[n].step_len_ticks ;
+        tx_buf[i++] = stepgen_array[n].step_space_ticks ;
+        tx_buf[i++] = stepgen_array[n].dir_setup_ticks ;
+        tx_buf[i++] = stepgen_array[n].dir_hold_ticks ;
     }
 
     for (n = 0 ; n < ud->num_pwm ; n++) {
-    	tx_buf[i++] = SWAP_BYTES(pwmgen_array[n].pwm_frequency) ;
+    	tx_buf[i++] = pwmgen_array[n].pwm_frequency ;
     }
 
     for(n = 0 ; n < i ; n++) checksum ^= tx_buf[n] ;
@@ -708,7 +722,7 @@ static int configure_cmd(void * arg) {
 static int stop_machine() {
 	unsigned int checksum = 0 ;
 
-	tx_buf[0] = SWAP_BYTES(CMD_STP) ;
+	tx_buf[0] = CMD_STP ;
 	checksum ^= tx_buf[0] ;
 	tx_buf[1] = checksum ;
 
@@ -751,7 +765,7 @@ static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) {
 		comp_id, "%s.axis.%d.maxvel", prefix, num) ;
 	if (ret < 0) return ret ;
 
-	addr->maxvel = 0.0 ;
+	addr->maxvel = 1.0 ;
 
 	ret = hal_param_float_newf(HAL_RW, &(addr->maxaccel),
 		comp_id, "%s.axis.%d.maxaccel", prefix, num) ;
@@ -814,13 +828,19 @@ static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) {
 	if (ret < 0) return ret ;
 
 	*(addr->enable) = 0 ;
+    
+    ret = hal_pin_bit_newf(HAL_IN, &(addr->vel_cmds),
+		comp_id, "%s.axis.%d.vel_cmds", prefix, num) ;
+	if (ret < 0) return ret ;
+
+	*(addr->vel_cmds) = 0 ;
 
 	addr->old_scale = 0.0 ;
 	addr->ucont_old_pos = 0 ;
 	addr->ucont_pos = 0 ;
 	addr->velocity = 0.0 ;
 
-	addr->cmd_mode = VELOCITY ;
+	addr->cmd_mode = POSITION ;
 
 	return 0 ;
 }

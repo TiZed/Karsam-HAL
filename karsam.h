@@ -101,6 +101,7 @@ typedef struct {
 	hal_bit_t *home ;
 	hal_bit_t *limit ;
 	hal_bit_t *fault ;
+    hal_bit_t *vel_cmds ;
     hal_float_t *position_cmd ;
 	hal_float_t *velocity_cmd ;
 	hal_float_t *position_fb ;
@@ -120,11 +121,11 @@ typedef struct {
 	uint32_t dir_setup_ticks ;
 	uint32_t dir_hold_ticks ;
 
-	double maxvel ;
-	double maxaccel ;
+	hal_float_t maxvel ;
+	hal_float_t maxaccel ;
 	
 	volatile long long int accum ;
-	int32_t target_inc ;
+	int64_t target_inc ;
 
 	double scale_inv ;
 
@@ -210,7 +211,7 @@ typedef struct {
 #define CMD_CHK     0x4b484323    // #CHK
 
 #define ulceil(val, inc)	(inc * (1 + (val - 1) / inc))
-#define fixed2fp(val)		(double)((val - (1L << (PICKOFF - 1))) * (1.0 / (1L << PICKOFF)))
+#define fixed2fp(val)		(((double)val - (1L << (PICKOFF - 1))) * (1.0 / (1L << PICKOFF)))
 #define sign(val)			(int)(val >= 0) ? 1 : -1
 
 #define SWAP_BYTES(IN)  IN << 24 | (IN & 0xff00) << 8 | (IN & 0xff0000) >> 8 | IN >> 24
