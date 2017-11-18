@@ -37,6 +37,7 @@
 #include "hal.h"
 #include "rtapi.h"
 #include "rtapi_app.h"
+#include "rtapi_math.h"
 
 #include <math.h>
 #include <time.h>
@@ -102,7 +103,7 @@ platform_t check_platform(void)
 	char buf[2048] ;
 	size_t fsize ;
 
-	debug = 1 ;
+	debug = 0 ;
 
 	fp = fopen("/proc/cpuinfo", "r") ;
 	fsize = fread(buf, 1, sizeof(buf), fp) ;
@@ -425,6 +426,44 @@ void update(void * arg, long period)
 			stepgen->dir_hold_ticks = stepgen->dir_hold / period_ns ;
 			send_cfg = 1 ;
 		}
+
+		if (send_cfg) {
+			// Maximum step frequency
+			min_period = stepgen->step_len + stepgen->step_space ;
+			max_freq = 1.0 / (4 * min_period * 1e-9) ;
+
+			stepgen->act_maxvel = stepgen->maxvel ;
+
+			if (stepgen->act_maxvel <= 0.0) stepgen->act_maxvel = 0.0 ;
+			else {
+				// If requested velocity is higher than the maximal step frequency, limit velocity
+				if((stepgen->act_maxvel * rtapi_fabs(stepgen->position_scale)) < max_freq) {
+					max_freq = stepgen->act_maxvel * rtapi_fabs(stepgen->position_scale) ;
+				}
+			}
+
+			stepgen->act_maxvel = max_freq ;
+
+			/* set internal accel limit to its absolute max, which is
+					   zero to full speed in one thread period */
+			max_accl = max_freq * recip_dt;
+
+			stepgen->act_maxaccel = stepgen->maxaccel ;
+
+			/* check for user specified accel limit parameter */
+			if (stepgen->act_maxaccel <= 0.0) stepgen->act_maxaccel = 0.0 ;
+			else {
+				/* parameter is non-zero, compare to max_accl */
+				if ((stepgen->act_maxaccel * rtapi_fabs(stepgen->position_scale)) > max_accl) {
+					/* parameter is too high, lower it */
+					stepgen->act_maxaccel = max_accl / rtapi_fabs(stepgen->position_scale) ;
+				} else {
+					stepgen->act_maxaccel *= rtapi_fabs(stepgen->position_scale) ;
+				}
+			}
+
+			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Axis %d: maxvel=%f ,%f, maxaccl=%f, %f ", module_name, n, stepgen->maxvel, stepgen->act_maxvel, stepgen->maxaccel, stepgen->act_maxaccel) ;
+		}
 	
 		stepgen++ ;
 	}
@@ -459,39 +498,6 @@ void update(void * arg, long period)
 
 	// Velocity/Position calculations pass
 	for (n = 0 ; n < ud->num_axes ; n++) {
-		// Maximum step frequency
-		min_period = stepgen->step_len + stepgen->step_space ;
-		max_freq = 1.0 / (min_period * 1e-9) ;
-
-		if (stepgen->maxvel <= 0.0) stepgen->maxvel = 0.0 ;
-		else {
-			// If requested velocity is higher than the maximal step frequency, limit velocity
-			if(stepgen->maxvel * fabs(stepgen->position_scale) > max_freq) {
-				stepgen->maxvel = max_freq / fabs(stepgen->position_scale) ;
-			}
-			// else, lower the maximal frequency.
-			else {
-				max_freq = stepgen->maxvel * fabs(stepgen->position_scale) ;
-			}
-		}
-
-		/* set internal accel limit to its absolute max, which is
-		   zero to full speed in one thread period */
-		max_accl = max_freq * recip_dt;
-
-		/* check for user specified accel limit parameter */
-		if (stepgen->maxaccel <= 0.0) stepgen->maxaccel = 0.0 ;
-		else {
-			/* parameter is non-zero, compare to max_accl */
-			if ((stepgen->maxaccel * fabs(stepgen->position_scale)) > max_accl) {
-				/* parameter is too high, lower it */
-				stepgen->maxaccel = max_accl / fabs(stepgen->position_scale) ;
-			} else {
-				/* lower limit to match parameter */
-				max_accl = stepgen->maxaccel * fabs(stepgen->position_scale) ;
-			}
-		}
-        
         if (*(stepgen->vel_cmds) == 1)
             stepgen->cmd_mode = VELOCITY ;
         else
@@ -505,43 +511,45 @@ void update(void * arg, long period)
 			vel_cmd = (pos_cmd - stepgen->old_pos) * recip_dt ;
 			stepgen->old_pos = pos_cmd ;
 
-			if(vel_cmd > stepgen->maxvel)
-				vel_cmd = stepgen->maxvel ;
-			else if(vel_cmd < -stepgen->maxvel)
-				vel_cmd = -stepgen->maxvel ;
+			if(vel_cmd > stepgen->act_maxvel)
+				vel_cmd = stepgen->act_maxvel ;
+			else if(vel_cmd < -stepgen->act_maxvel)
+				vel_cmd = -stepgen->act_maxvel ;
 
 			curr_pos = fixed2fp(stepgen->accum) ;
-			match_time = fabs(vel_cmd - stepgen->velocity) / max_accl ;
+			match_time = rtapi_fabs(vel_cmd - stepgen->velocity) / stepgen->act_maxaccel ;
+
+			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Axis %d: Position=%e, cmd=%e, vel=%e", module_name, n, curr_pos, pos_cmd, vel_cmd) ;
 
 			est_out = curr_pos + (vel_cmd + stepgen->velocity) * 0.5 * match_time ;
 			est_cmd = pos_cmd + vel_cmd * (match_time - 1.5 * dt) ;
-			est_err = est_out - est_err ;
+			est_err = est_out - est_cmd ;
 
 			if (match_time < dt) {
-				if (fabs(est_err) < 1e-4) new_vel = vel_cmd ;
+				if (rtapi_fabs(est_err) < 1e-4) new_vel = vel_cmd ;
 				else {
 					new_vel = vel_cmd - 0.5 * est_err * recip_dt ;
 
-					if (new_vel > (stepgen->velocity + max_accl * dt))
-						new_vel = stepgen->velocity + max_accl * dt ;
-					else if (new_vel < (stepgen->velocity - max_accl * dt))
-						new_vel = stepgen->velocity - max_accl * dt ;
+					if (new_vel > (stepgen->velocity + stepgen->act_maxaccel * dt))
+						new_vel = stepgen->velocity + stepgen->act_maxaccel * dt ;
+					else if (new_vel < (stepgen->velocity - stepgen->act_maxaccel * dt))
+						new_vel = stepgen->velocity - stepgen->act_maxaccel * dt ;
 				}
 			} else {
 				dir = sign(vel_cmd - stepgen->velocity) ;
-				dp = -2.0 * dir * max_accl * dt * match_time ;
+				dp = -2.0 * dir * stepgen->act_maxaccel * dt * match_time ;
 
-				if (fabs(est_err + dp * 2.0) < fabs(est_err))
-					new_vel = stepgen->velocity - dir * max_accl * dt ;
+				if (rtapi_fabs(est_err + dp * 2.0) < rtapi_fabs(est_err))
+					new_vel = stepgen->velocity - dir * stepgen->act_maxaccel * dt ;
 				else
-					new_vel = stepgen->velocity + dir * max_accl * dt ;
+					new_vel = stepgen->velocity + dir * stepgen->act_maxaccel * dt ;
 			}
 
 		// Velocity mode
 		} else {
 			vel_cmd = *(stepgen->velocity_cmd) * stepgen->position_scale ;
 
-			dv = max_accl * dt ;
+			dv = stepgen->act_maxaccel * dt ;
 			if (vel_cmd > stepgen->velocity + dv)
 				new_vel = stepgen->velocity + dv ;
 			else if (vel_cmd < stepgen->velocity - dv)
@@ -550,16 +558,18 @@ void update(void * arg, long period)
 				new_vel = vel_cmd ;
 		}
 
-		if (new_vel > stepgen->maxvel) new_vel = stepgen->maxvel ;
-		else if (new_vel < -stepgen->maxvel) new_vel = -stepgen->maxvel ;
+		if (new_vel > stepgen->act_maxvel) new_vel = stepgen->act_maxvel ;
+		else if (new_vel < -stepgen->act_maxvel) new_vel = -stepgen->act_maxvel ;
 
 		stepgen->velocity = new_vel ;
 		stepgen->target_inc = stepgen->velocity * velocity_scale ;
 
+		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Velocity of %d is %llu %f, scale=%f", module_name, n, stepgen->target_inc, stepgen->velocity, velocity_scale) ;
+
 		tx_buf[i++] = (unsigned int) (stepgen->target_inc >> 32) ;
 		tx_buf[i++] = (unsigned int) stepgen->target_inc ;
 
-		tx_buf[1] |= stepgen->axis ;
+		if (*(stepgen->enable)) tx_buf[1] |= stepgen->axis ;
 
 		stepgen++ ;
 	} // for (n = 0 ; n < num_axes ...
@@ -633,10 +643,11 @@ static int update_pos(void * arg)
 		pos += SWAP_BYTES(rx_buf[fp]) ;
 		fp++ ;
 		stepgen[n].ucont_pos = pos ;
-		stepgen[n].accum += stepgen[n].ucont_pos - stepgen[n].ucont_old_pos ;
+		stepgen[n].accum += (stepgen[n].ucont_pos - stepgen[n].ucont_old_pos) ;
 		
 		*(stepgen[n].count) = stepgen[n].accum >> PICKOFF ;
-		*(stepgen[n].position_fb) = fixed2fp(stepgen[n].accum) * stepgen->scale_inv ;
+		*(stepgen[n].position_fb) = (double)(stepgen[n].accum) * stepgen->scale_inv ;
+//		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Position of %d is %llu, %e, %llu, %e", module_name, n, stepgen[n].accum, *(stepgen[n].position_fb), pos, stepgen->scale_inv) ;
 
 		// Update switches
 		switch (stepgen[n].axis) {
@@ -839,6 +850,10 @@ static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) {
 	addr->ucont_old_pos = 0 ;
 	addr->ucont_pos = 0 ;
 	addr->velocity = 0.0 ;
+	addr->old_pos = 0.0 ;
+
+	addr->act_maxaccel = 0.0 ;
+	addr->act_maxvel = 0.0 ;
 
 	addr->cmd_mode = POSITION ;
 
