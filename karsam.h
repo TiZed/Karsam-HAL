@@ -213,8 +213,8 @@ typedef struct {
 #define CMD_STP     0x50545323    // #STP
 #define CMD_CHK     0x4b484323    // #CHK
 
-#define ulceil(val, inc)	(inc * (1 + (val - 1) / inc))
-#define fixed2fp(val)		(((double)val - (1L << (PICKOFF - 1)))) * (1.0 / (1L << PICKOFF))
+#define ulceil(val, inc)	((val == 0) ? 0 : (inc * (1 + (val - 1) / inc)))
+#define fixed2fp(val)		((double)(val - (1L << (PICKOFF - 1))) * (1.0 / (1L << PICKOFF)))
 #define sign(val)			(int)(val >= 0) ? 1 : -1
 
 #define SWAP_BYTES(IN)  IN << 24 | (IN & 0xff00) << 8 | (IN & 0xff0000) >> 8 | IN >> 24

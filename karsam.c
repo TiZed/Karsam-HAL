@@ -564,7 +564,7 @@ void update(void * arg, long period)
 		stepgen->velocity = new_vel ;
 		stepgen->target_inc = stepgen->velocity * velocity_scale ;
 
-		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Velocity of %d is %llu %f, scale=%f", module_name, n, stepgen->target_inc, stepgen->velocity, velocity_scale) ;
+//		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Velocity of %d is %llu %f, scale=%f", module_name, n, stepgen->target_inc, stepgen->velocity, velocity_scale) ;
 
 		tx_buf[i++] = (unsigned int) (stepgen->target_inc >> 32) ;
 		tx_buf[i++] = (unsigned int) stepgen->target_inc ;
@@ -646,7 +646,7 @@ static int update_pos(void * arg)
 		stepgen[n].accum += (stepgen[n].ucont_pos - stepgen[n].ucont_old_pos) ;
 		
 		*(stepgen[n].count) = stepgen[n].accum >> PICKOFF ;
-		*(stepgen[n].position_fb) = (double)(stepgen[n].accum) * stepgen->scale_inv ;
+		*(stepgen[n].position_fb) = (double)(stepgen[n].accum - (1 << (PICKOFF - 1))) * stepgen->scale_inv ;
 //		rtapi_print_msg(RTAPI_MSG_INFO, "%s: Position of %d is %llu, %e, %llu, %e", module_name, n, stepgen[n].accum, *(stepgen[n].position_fb), pos, stepgen->scale_inv) ;
 
 		// Update switches
