@@ -519,7 +519,7 @@ void update(void * arg, long period)
 			curr_pos = fixed2fp(stepgen->accum) ;
 			match_time = rtapi_fabs(vel_cmd - stepgen->velocity) / stepgen->act_maxaccel ;
 
-			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Axis %d: Position=%e, cmd=%e, vel=%e", module_name, n, curr_pos, pos_cmd, vel_cmd) ;
+//			rtapi_print_msg(RTAPI_MSG_INFO, "%s: Axis %d: Position=%e, cmd=%e, vel=%e", module_name, n, curr_pos, pos_cmd, vel_cmd) ;
 
 			est_out = curr_pos + (vel_cmd + stepgen->velocity) * 0.5 * match_time ;
 			est_cmd = pos_cmd + vel_cmd * (match_time - 1.5 * dt) ;

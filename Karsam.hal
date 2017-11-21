@@ -17,7 +17,7 @@ setp karsam.base_frequency [EMCMOT]BASE_FREQUENCY
 
 # X - Axis
 setp karsam.axis.0.position-scale [AXIS_0]SCALE
-setp karsam.axis.0.maxaccel [AXIS_0]STEPGEN_MAXACCEL
+setp karsam.axis.0.maxaccel [AXIS_0]MAX_ACCELERATION
 setp karsam.axis.0.maxvel [AXIS_0]MAX_VELOCITY
 
 net xpos-en axis.0.amp-enable-out => karsam.axis.0.enable
@@ -31,7 +31,7 @@ net xpos-limit karsam.axis.0.limit => axis.0.pos-lim-sw-in
 
 # Y - Axis
 setp karsam.axis.1.position-scale [AXIS_1]SCALE
-setp karsam.axis.1.maxaccel [AXIS_1]STEPGEN_MAXACCEL
+setp karsam.axis.1.maxaccel [AXIS_1]MAX_ACCELERATION
 setp karsam.axis.1.maxvel [AXIS_1]MAX_VELOCITY
 
 net ypos-cmd axis.1.motor-pos-cmd => karsam.axis.1.position-cmd
@@ -44,7 +44,7 @@ net ypos-limit karsam.axis.1.limit => axis.1.pos-lim-sw-in
 
 # Z - Axis
 setp karsam.axis.2.position-scale [AXIS_2]SCALE
-setp karsam.axis.2.maxaccel [AXIS_2]STEPGEN_MAXACCEL
+setp karsam.axis.2.maxaccel [AXIS_2]MAX_ACCELERATION
 setp karsam.axis.2.maxvel [AXIS_2]MAX_VELOCITY
 
 net zpos-cmd axis.2.motor-pos-cmd => karsam.axis.2.position-cmd
