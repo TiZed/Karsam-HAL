@@ -146,13 +146,15 @@ typedef struct {
 } stepgen_t ;
 
 typedef struct {
-	hal_float_t *pwm_duty ;
+	hal_float_t *value ;
 	hal_float_t pwm_scale ;
 	hal_u32_t pwm_frequency ;
 	hal_bit_t *enable ;
+    hal_bit_t *forward ;
 	hal_bit_t *reverse ;
 
-	float old_duty ;
+    float duty ;
+	double old_value ;
 	unsigned int old_frequency ;
 } pwmgen_t ;
 

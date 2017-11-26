@@ -577,11 +577,14 @@ void update(void * arg, long period)
 	// PWM output pass
 	for (n = 0 ; n < ud->num_pwm ; n++) {
 		// Flag PWM transmit if duty cycle changed on one of the channels
-		if ((float) *(pwmgen->pwm_duty) != pwmgen->old_duty) {
-			pwmgen->old_duty = (float) *(pwmgen->pwm_duty) ;
+		if ((float) *(pwmgen->value) != pwmgen->old_value) {
+			pwmgen->old_value = *(pwmgen->value) ;
+            pwmgen->duty = (float) (*(pwmgen->value) / pwmgen->pwm_scale) ;
 		}
 
-		tx_buf[i++] = *(unsigned int *) &pwmgen->old_duty ;
+		tx_buf[i++] = *(unsigned int *) &pwmgen->duty ;
+        if(*(pwmgen->enable)) tx_buf[1] |= 1 << (16 + 2 * n) ;
+        if(*(pwmgen->reverse)) tx_buf[1] |= 1 << (16 + 2 * n + 1) ;
 
 		pwmgen++ ;
 	} // for (n = 0 ; n < num_pwm ...
@@ -864,11 +867,11 @@ static int export_stepgen(int num, stepgen_t * addr, axis_name_t axis) {
 static int export_pwmgen(int num, pwmgen_t * addr) {
 	int ret ;
 
-	ret = hal_pin_float_newf(HAL_IN, &(addr->pwm_duty),
-		comp_id, "%s.pwm.%d.duty_cycle", prefix, num) ;
+	ret = hal_pin_float_newf(HAL_IN, &(addr->value),
+		comp_id, "%s.pwm.%d.value", prefix, num) ;
 	if (ret < 0) return ret ;
 
-	*(addr->pwm_duty) = 0.0 ;
+	*(addr->value) = 0.0 ;
 
 	ret = hal_param_float_newf(HAL_RW, &(addr->pwm_scale),
 		comp_id, "%s.pwm.%d.scale", prefix, num) ;
@@ -887,6 +890,12 @@ static int export_pwmgen(int num, pwmgen_t * addr) {
 	if (ret < 0) return ret ;
 
 	*(addr->enable) = 0 ;
+    
+    ret = hal_pin_bit_newf(HAL_IN, &(addr->forward),
+		comp_id, "%s.pwm.%d.forward", prefix, num) ;
+	if (ret < 0) return ret ;
+
+	*(addr->forward) = 0 ;
 
 	ret = hal_pin_bit_newf(HAL_IN, &(addr->reverse),
 		comp_id, "%s.pwm.%d.reverse", prefix, num) ;
@@ -894,6 +903,9 @@ static int export_pwmgen(int num, pwmgen_t * addr) {
 
 	*(addr->reverse) = 0 ;
 
+    addr->old_value = 0.0 ;
+    addr->duty = 0.0 ;
+    
 	return 0 ;
 }
 
