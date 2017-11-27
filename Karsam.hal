@@ -6,7 +6,7 @@ loadrt tp
 
 # motion controller, get name and thread periods from ini file
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[TRAJ]AXES kins=trivkins tp=tp
-loadrt karsam num_axes=3 axis_name=x,y,z num_pwm=2
+loadrt karsam num_axes=3 axis_name=x,y,z num_pwm=1
 
 loadrt or2 count=1
 loadrt not count=1
@@ -79,6 +79,7 @@ net spindle-fwd motion.spindle-forward => karsam.pwm.0.forward
 net spindle-rev motion.spindle-reverse => karsam.pwm.0.reverse
 
 # Laser
+
 # setp karsam.pwm.1.frequency 20000
 # setp karsam.pwm.1.scale 1800
 # net laser-cmd laser.power.val => karsam.pwm.1.value
@@ -88,6 +89,8 @@ net emo_button karsam.emo => or2.0.in0
 net spi_error karsam.spi_error => or2.0.in1
 net not_err or2.0.out => not.0.in
 net emo not.0.out => iocontrol.0.emc-enable-in
+
+net enable iocontrol.0.user-enable-out => karsam.enable
 
 # net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
 

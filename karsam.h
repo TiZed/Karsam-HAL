@@ -164,6 +164,7 @@ typedef struct {
 
 	hal_bit_t *ready ;
 	hal_bit_t *spi_error ;
+	hal_bit_t *enable ;
 
 	hal_u32_t basefreq ;
 

@@ -285,6 +285,11 @@ int rtapi_app_main(void)
 	if (retval < 0) goto error ;
 	*(update_data->spi_error) = 0 ;
 
+	retval = hal_pin_bit_newf(HAL_IN, &(update_data->enable),
+			comp_id, "%s.enable", prefix) ;
+	if (retval < 0) goto error ;
+	*(update_data->enable) = 0 ;
+
 	retval = hal_param_u32_newf(HAL_RW, &(update_data->basefreq),
 			comp_id, "%s.base_frequency", prefix) ;
 	if (retval < 0) goto error ;
