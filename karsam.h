@@ -79,14 +79,9 @@ enum cmd_mode_names {
 	VELOCITY
 } ;
 
-enum pin_output_names {
-	SPINDLE_ENABLE,
-	LASER_ENBALE
-} ;
-
-enum pin_pwm_names {
-	SPINDLE_SPEED,
-	LASER_POWER
+enum pwm_type {
+	PWM_REGULAR = 0,
+	PWM_ESC
 } ;
 
 typedef enum {
@@ -152,6 +147,7 @@ typedef struct {
 	hal_bit_t *enable ;
     hal_bit_t *forward ;
 	hal_bit_t *reverse ;
+	hal_u32_t type ;
 
     float duty ;
 	double old_value ;

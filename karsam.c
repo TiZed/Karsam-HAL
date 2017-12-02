@@ -584,7 +584,11 @@ void update(void * arg, long period)
 		// Flag PWM transmit if duty cycle changed on one of the channels
 		if ((float) *(pwmgen->value) != pwmgen->old_value) {
 			pwmgen->old_value = *(pwmgen->value) ;
-            pwmgen->duty = (float) (*(pwmgen->value) / pwmgen->pwm_scale) ;
+
+			if (pwmgen->type == PWM_ESC)
+				pwmgen->duty = pwmgen->enable ? 3.5 + 6.5 * (*(pwmgen->value) / pwmgen->pwm_scale) : 0.0 ;
+			else
+				pwmgen->duty = pwmgen->enable ? 100.0 * (*(pwmgen->value) / pwmgen->pwm_scale) : 0.0 ;
 		}
 
 		tx_buf[i++] = *(unsigned int *) &pwmgen->duty ;
@@ -905,6 +909,12 @@ static int export_pwmgen(int num, pwmgen_t * addr) {
 	ret = hal_pin_bit_newf(HAL_IN, &(addr->reverse),
 		comp_id, "%s.pwm.%d.reverse", prefix, num) ;
 	if (ret < 0) return ret ;
+
+	ret = hal_param_u32_newf(HAL_RW, &(addr->type),
+		comp_id, "%s.pwm.%d.type", prefix, num) ;
+	if (ret < 0) return ret ;
+
+	addr->type = 0 ;
 
 	*(addr->reverse) = 0 ;
 
