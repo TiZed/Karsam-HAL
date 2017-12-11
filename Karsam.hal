@@ -6,10 +6,13 @@ loadrt tp
 
 # motion controller, get name and thread periods from ini file
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[TRAJ]AXES kins=trivkins tp=tp
-loadrt karsam num_axes=3 axis_name=x,y,z num_pwm=1
 
+# Some logic gates for EMO
 loadrt or2 count=1
 loadrt not count=1
+
+# Karsam module
+loadrt karsam num_axes=3 axis_name=x,y,z num_pwm=1
 
 addf motion-command-handler servo-thread
 addf motion-controller servo-thread
