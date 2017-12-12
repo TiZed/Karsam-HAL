@@ -323,16 +323,15 @@ error:
 	}
 
     // Clear Controller reset
-    GPIO_SET = 1 << 23 ;
-    INP_GPIO(23) ;
+    GPIO_SET = 1 << 22 ;
 
-    // Wait for ~2sec.
-    for(n = 0 ; n < 2000 ; n++) {
+    // Wait for ~1sec.
+    for(n = 0 ; n < 1000 ; n++) {
     	rtapi_delay(1000000) ;
     }
 
     // Clear step controllers reset
-    GPIO_CLR = 1 << 24 ;
+    GPIO_CLR = 1 << 22 ;
 
 	rtapi_print_msg(RTAPI_MSG_INFO, "%s: installed driver\n", module_name) ;
 	hal_ready(comp_id) ;
@@ -341,10 +340,23 @@ error:
 
 void rtapi_app_exit(void)
 {
+	int n ;
+
 	rtapi_print_msg(RTAPI_MSG_INFO, "%s: removing driver\n", module_name) ;
-	stop_machine() ;
 	spi_info.run = 0 ;
+	stop_machine() ;
 	pthread_join(spi_thread, NULL) ;
+	// Clear Controller reset
+	GPIO_SET = 1 << 22 ;
+
+	// Wait for ~0.5sec.
+	for(n = 0 ; n < 500 ; n++) {
+		rtapi_delay(1000000) ;
+	}
+
+	// Clear step controllers reset
+	GPIO_CLR = 1 << 22 ;
+
 	bcm_close() ;
 
 	hal_exit(comp_id) ;
@@ -622,6 +634,7 @@ static int update_pos(void * arg)
 {
 	unsigned int n = 0, fp = 1, flags_raw = 0 ;
 	unsigned int ret = 1 ;
+	static unsigned int old_flags = 0 ;
 	update_data_t * ud = arg ;
 	stepgen_t * stepgen = ud->stepgen ;
     cnc_flags_t flags ;
@@ -630,8 +643,10 @@ static int update_pos(void * arg)
     flags_raw = SWAP_BYTES(rx_buf[fp]) ;
     fp++ ;
     memcpy((void *)&flags, (void *)&flags_raw, FLAGS_LEN * sizeof(unsigned int)) ;
-    if(flags_raw != 0)
+    if(flags_raw != old_flags) {
+    	old_flags = flags_raw ;
     	rtapi_print_msg(RTAPI_MSG_INFO, "%s: Controller flags %x.\n", module_name, flags_raw) ;
+    }
 
     if (flags.ucont_fault) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Microcontroller error reported.", module_name) ;
@@ -746,10 +761,12 @@ static int stop_machine() {
 	unsigned int checksum = 0 ;
 
 	tx_buf[0] = CMD_STP ;
+	tx_buf[1] = 0 ;
+	tx_buf[2] = 0 ;
 	checksum ^= tx_buf[0] ;
-	tx_buf[1] = checksum ;
+	tx_buf[3] = checksum ;
 
-	spi_xmit(3) ;
+	spi_xmit(4) ;
 
 	return 1 ;
 }
@@ -972,6 +989,7 @@ void * bcm_spi_thread(void * wr_info) {
 	}
 
 	// Destroy semaphores and exit thread
+	rtapi_print_msg(RTAPI_MSG_INFO, "Exiting SPI thread") ;
 	sem_destroy(&info->start) ;
 	sem_destroy(&info->done) ;
 	pthread_exit(NULL) ;
