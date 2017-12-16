@@ -11,6 +11,9 @@ loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[TRAJ]AX
 loadrt or2 count=1
 loadrt not count=1
 
+# Debounce
+# loadrt debounce count=6
+
 # Karsam module
 loadrt karsam num_axes=3 axis_name=x,y,z num_pwm=1
 
@@ -33,8 +36,14 @@ net xpos_fb axis.0.motor-pos-fb <= karsam.axis.0.position-fb
 net xpos-en axis.0.amp-enable-out => karsam.axis.0.enable
 net xpos-fault axis.0.amp-fault-in <= karsam.axis.0.fault
 
-net xpos-home karsam.axis.0.home => axis.0.home-sw-in
-net xpos-home karsam.axis.0.home => axis.0.neg-lim-sw-in
+# net xpos-home-raw karsam.axis.0.home => debounce.0.0.in
+# net xpos-limit-raw karsam.axis.0.limit => debounce.0.1.in
+
+# net xpos-home debounce.0.0.out => axis.0.home-sw-in
+# net xpos-home debounce.0.0.out => axis.0.neg-lim-sw-in
+# net xpos-max-limit debounce.0.1.out => axis.0.pos-lim-sw-in
+
+net xpos-home karsam.axis.0.home => axis.0.home-sw-in axis.0.neg-lim-sw-in
 net xpos-limit karsam.axis.0.limit => axis.0.pos-lim-sw-in
 
 # Y - Axis
@@ -47,6 +56,13 @@ net ypos-fb karsam.axis.1.position-fb => axis.1.motor-pos-fb
 
 net ypos-en axis.1.amp-enable-out => karsam.axis.1.enable
 net ypos-fault axis.1.amp-fault-in <= karsam.axis.1.fault
+
+# net ypos-home-raw karsam.axis.1.home => debounce.0.2.in
+# net ypos-limit-raw karsam.axis.1.limit => debounce.0.3.in
+
+# net ypos-home debounce.0.2.out => axis.1.home-sw-in
+# net ypos-home debounce.0.2.out => axis.1.neg-lim-sw-in
+# net ypos-max-limit debounce.0.3.out => axis.1.pos-lim-sw-in
 
 net ypos-home karsam.axis.1.home => axis.1.home-sw-in
 net ypos-home karsam.axis.1.home => axis.1.neg-lim-sw-in
@@ -62,6 +78,13 @@ net zpos-fb karsam.axis.2.position-fb => axis.2.motor-pos-fb
 
 net zpos-en axis.2.amp-enable-out => karsam.axis.2.enable
 net zpos-fault axis.2.amp-fault-in <= karsam.axis.2.fault
+
+# net zpos-home-raw karsam.axis.2.home => debounce.0.4.in
+# net zpos-limit-raw karsam.axis.2.limit => debounce.0.5.in
+
+# net zpos-home debounce.0.4.out => axis.2.home-sw-in
+# net zpos-home debounce.0.4.out => axis.2.neg-lim-sw-in
+# net zpos-max-limit debounce.0.5.out => axis.2.pos-lim-sw-in
 
 net zpos-home karsam.axis.2.home => axis.2.home-sw-in
 net zpos-home karsam.axis.2.home => axis.2.neg-lim-sw-in

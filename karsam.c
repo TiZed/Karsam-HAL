@@ -749,10 +749,16 @@ static int configure_cmd(void * arg) {
     for(n = 0 ; n < i ; n++) checksum ^= tx_buf[n] ;
     tx_buf[i++] = checksum ;
 
+    spi_xmit(++i) ;
+
+/*  Ignore SPI error on config, for now. This will show up as an SPI error
+ *  on the controller side, should it fail to receive.
+
     if (!spi_xmit(++i)) {
     	rtapi_print_msg(RTAPI_MSG_ERR, "%s: Failed to send configuration update to controller.\n", module_name) ;
     	return 0 ;
     }
+*/
 
     return 1 ;
 }
